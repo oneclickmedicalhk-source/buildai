@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server"
 import { requireBuildAiUserIdFromRequest } from "@/lib/auth/buildai-supabase-admin"
-import { getUserCreditBalanceUsd } from "@/lib/service/credits"
+import { getUserCreditBalanceUsd, maybeGrantFreeMonthlyCredits } from "@/lib/service/credits"
 
 export const runtime = "nodejs"
 
 export async function GET(req: Request) {
   try {
     const userId = await requireBuildAiUserIdFromRequest(req)
+    await maybeGrantFreeMonthlyCredits(userId)
     const bal = await getUserCreditBalanceUsd(userId)
     return NextResponse.json(bal)
   } catch (e) {

@@ -20,7 +20,7 @@ import { callOpenAiJsonObject } from "@/lib/openai-codegen"
 import { parseModelJsonObject } from "@/lib/parse-model-json"
 import { applyUnifiedDiffToVirtualFiles } from "@/lib/patch/apply-unified-diff"
 import { requireBuildAiUserIdFromRequest } from "@/lib/auth/buildai-supabase-admin"
-import { getUserCreditBalanceUsd, insertCreditsLedgerEntry, insertUsageEvent } from "@/lib/service/credits"
+import { getUserCreditBalanceUsd, insertCreditsLedgerEntry, insertUsageEvent, maybeGrantFreeMonthlyCredits } from "@/lib/service/credits"
 import { estimatePreauthChargeUsd, estimateUsageAndCharge } from "@/lib/service/usage-meter"
 
 const modelOutputSchema = z.object({
@@ -75,6 +75,7 @@ function buildOutboundMessages(body: GenerateRequest): {
 export async function POST(req: Request) {
   try {
     const userId = await requireBuildAiUserIdFromRequest(req)
+    await maybeGrantFreeMonthlyCredits(userId)
     const json: unknown = await req.json()
     const body = generateRequestSchema.parse(json)
     const supabaseConfigured = body.flags?.supabaseConfigured === true

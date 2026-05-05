@@ -13,7 +13,7 @@ import { vertexGeminiGenerateJson } from "@/lib/vertex-gemini"
 import { callOpenAiJsonObject } from "@/lib/openai-codegen"
 import { parseModelJsonObject } from "@/lib/parse-model-json"
 import { requireBuildAiUserIdFromRequest } from "@/lib/auth/buildai-supabase-admin"
-import { getUserCreditBalanceUsd, insertCreditsLedgerEntry, insertUsageEvent } from "@/lib/service/credits"
+import { getUserCreditBalanceUsd, insertCreditsLedgerEntry, insertUsageEvent, maybeGrantFreeMonthlyCredits } from "@/lib/service/credits"
 import { estimatePreauthChargeUsd, estimateUsageAndCharge } from "@/lib/service/usage-meter"
 
 function buildUserDelimitedContent(content: string): string {
@@ -23,6 +23,7 @@ function buildUserDelimitedContent(content: string): string {
 export async function POST(req: Request) {
   try {
     const userId = await requireBuildAiUserIdFromRequest(req)
+    await maybeGrantFreeMonthlyCredits(userId)
     const json: unknown = await req.json()
     const body = planRequestSchema.parse(json)
     const supabaseConfigured = body.flags?.supabaseConfigured === true
