@@ -20,12 +20,19 @@ import { useI18n } from "@/components/i18n-context"
 import { useAuth } from "@/components/auth-context"
 import { Sparkles, ChevronDown, Settings, CreditCard, LogOut, User } from "lucide-react"
 import { useTheme } from "next-themes"
+import { useEffect, useState } from "react"
 
 export function Header() {
   const { aiProvider, setAiProvider } = useAiPreferences()
   const { lang, setLang, t } = useI18n()
-  const { signOut } = useAuth()
+  const { signOut, balanceUsd, refreshBalance } = useAuth()
   const { theme, setTheme } = useTheme()
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    void refreshBalance()
+  }, [menuOpen, refreshBalance])
 
   return (
     <header className="h-14 border-b border-border flex items-center justify-between gap-2 px-3 sm:px-4 bg-background/80 backdrop-blur-sm sticky top-0 z-50 min-w-0">
@@ -122,7 +129,7 @@ export function Header() {
         <Button variant="outline" size="sm" className="hidden sm:flex">
           {t("header_feedback")}
         </Button>
-        <DropdownMenu>
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className="gap-2 shrink-0">
               <div className="size-7 rounded-full bg-accent flex items-center justify-center">
@@ -132,6 +139,16 @@ export function Header() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem disabled className="opacity-100">
+              <div className="w-full flex items-center justify-between">
+                <span className="text-muted-foreground">
+                  {lang === "zh-HK" ? "餘額" : "Balance"}
+                </span>
+                <span className="tabular-nums">
+                  {typeof balanceUsd === "number" ? `$${balanceUsd.toFixed(2)}` : "—"}
+                </span>
+              </div>
+            </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link href="/settings">
                 <Settings className="size-4 mr-2" />

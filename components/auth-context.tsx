@@ -17,6 +17,10 @@ type AuthValue = {
   authConfigured: boolean
   /** False until layout props or bootstrap fetch has finished (avoid false "not configured"). */
   authEnvReady: boolean
+  /** Cached USD credit balance for the signed-in user (null if unknown / not signed in). */
+  balanceUsd: number | null
+  /** Refresh credit balance from server (no-op if not signed in). */
+  refreshBalance: () => Promise<void>
   supabase: SupabaseClient
   signOut: () => Promise<void>
 }
@@ -97,6 +101,7 @@ export function AuthProvider({
   }, [effectivePair])
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [balanceUsd, setBalanceUsd] = useState<number | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -115,6 +120,37 @@ export function AuthProvider({
     }
   }, [supabase])
 
+  const refreshBalance = useMemo(() => {
+    return async () => {
+      const token = session?.access_token ?? null
+      if (!token) {
+        setBalanceUsd(null)
+        return
+      }
+      try {
+        const res = await fetch("/api/billing/balance", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        })
+        const data = (await res.json()) as { balanceUsd?: number; error?: string }
+        if (!res.ok) throw new Error(data.error ?? "Failed to fetch balance")
+        if (typeof data.balanceUsd === "number") setBalanceUsd(data.balanceUsd)
+      } catch {
+        // Keep existing value; avoid noisy UI.
+      }
+    }
+  }, [session?.access_token])
+
+  useEffect(() => {
+    // Best-effort: keep cached balance fresh after sign-in / session refresh.
+    if (!session?.access_token) {
+      setBalanceUsd(null)
+      return
+    }
+    void refreshBalance()
+  }, [session?.access_token, refreshBalance])
+
   const value = useMemo<AuthValue>(
     () => ({
       user: session?.user ?? null,
@@ -123,12 +159,15 @@ export function AuthProvider({
       loading,
       authConfigured,
       authEnvReady: bootstrapResolved,
+      balanceUsd,
+      refreshBalance,
       supabase,
       signOut: async () => {
         await supabase.auth.signOut()
+        setBalanceUsd(null)
       },
     }),
-    [session, loading, supabase, authConfigured, bootstrapResolved],
+    [session, loading, supabase, authConfigured, bootstrapResolved, balanceUsd, refreshBalance],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

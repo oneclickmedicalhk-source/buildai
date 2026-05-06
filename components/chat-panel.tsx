@@ -97,6 +97,7 @@ function GeneratingStatus({
   label?: "planning" | "building"
   stage?: Message["generatingStage"]
 }) {
+  const { t } = useI18n()
   const percentByStage: Partial<Record<NonNullable<Message["generatingStage"]>, number>> = {
     planning_request: 10,
     planning_parse: 35,
@@ -108,17 +109,32 @@ function GeneratingStatus({
     NonNullable<Message["generatingStage"]>,
     { title: string; detail?: string }
   > = {
-    planning_request: { title: "Requesting a plan…", detail: "Sending your goal to the planner." },
-    planning_parse: { title: "Parsing the plan…", detail: "Validating JSON + plan schema." },
-    waiting_confirm: { title: "Waiting for your confirmation…", detail: "Confirm & build when ready." },
-    codegen_request: { title: "Requesting code changes…", detail: "Sending instructions to the code generator." },
-    codegen_parse: { title: "Parsing generated code…", detail: "Validating JSON output (App.tsx + extra files)." },
+    planning_request: {
+      title: t("chat_status_planning_request_title"),
+      detail: t("chat_status_planning_request_detail"),
+    },
+    planning_parse: {
+      title: t("chat_status_planning_parse_title"),
+      detail: t("chat_status_planning_parse_detail"),
+    },
+    waiting_confirm: {
+      title: t("chat_status_waiting_confirm_title"),
+      detail: t("chat_status_waiting_confirm_detail"),
+    },
+    codegen_request: {
+      title: t("chat_status_codegen_request_title"),
+      detail: t("chat_status_codegen_request_detail"),
+    },
+    codegen_parse: {
+      title: t("chat_status_codegen_parse_title"),
+      detail: t("chat_status_codegen_parse_detail"),
+    },
   }
 
   const fallback =
     label === "planning"
-      ? { title: "Planning…", detail: "Drafting views, todos, and clarifications." }
-      : { title: "Generating…", detail: "Building updated source files." }
+      ? { title: t("chat_status_planning_request_title"), detail: t("chat_status_planning_request_detail") }
+      : { title: t("chat_status_codegen_request_title"), detail: t("chat_status_codegen_request_detail") }
 
   const cur = stage ? lines[stage] : fallback
   const pct = stage ? percentByStage[stage] : undefined
@@ -152,6 +168,18 @@ const SUGGESTIONS_ZH_HK = [
   "整一個活動宣傳頁（流程、講者、購票按鈕、地點）。",
   "整一個簡單網店（產品列表、產品頁、購物車）。",
 ]
+
+const FALLBACK_PREVIEW_APP_TSX = `export default function App() {
+  return (
+    <div style={{ padding: 24, fontFamily: "ui-sans-serif, system-ui" }}>
+      <h1 style={{ fontSize: 18, fontWeight: 700 }}>Preview unavailable</h1>
+      <p style={{ marginTop: 8, color: "#555" }}>
+        The AI reply was received, but the generated preview code was empty. Please try again.
+      </p>
+    </div>
+  )
+}
+`
 
 export interface ChatGenerateSuccess {
   reply: string
@@ -217,7 +245,7 @@ export function ChatPanel({
   const { aiProvider, uiStyleKit, setUiStyleKit, themeId, setThemeId, themeVariantId, setThemeVariantId } =
     useAiPreferences()
   const { lang, t } = useI18n()
-  const { accessToken } = useAuth()
+  const { accessToken, refreshBalance } = useAuth()
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [topupOpen, setTopupOpen] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -322,6 +350,7 @@ export function ChatPanel({
       if (res.status === 402 || data.code === "INSUFFICIENT_CREDITS") setTopupOpen(true)
       throw new Error(data.error ?? "Planning failed")
     }
+    void refreshBalance()
     return data as PlanResponse
   }
 
@@ -516,15 +545,17 @@ export function ChatPanel({
               : msg,
           ),
         )
+        const safeAppTsx = data.appTsx?.trim() ? data.appTsx : FALLBACK_PREVIEW_APP_TSX
         onGenerateSuccess({
           reply: data.reply,
           userPrompt: userText,
-          appTsx: data.appTsx,
+          appTsx: safeAppTsx,
           extraFiles: data.extraFiles,
           ...(data.changedFiles?.length ? { changedFiles: data.changedFiles } : {}),
           ...(baseApprovedPlan ? { approvedPlan: baseApprovedPlan } : {}),
           ...(baseClarifications?.length ? { planClarifications: baseClarifications } : {}),
         })
+        void refreshBalance()
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Something went wrong"
         toast.error(msg)
@@ -569,14 +600,16 @@ export function ChatPanel({
               : msg,
           ),
         )
+        const safeAppTsx = data.appTsx?.trim() ? data.appTsx : FALLBACK_PREVIEW_APP_TSX
         onGenerateSuccess({
           reply: data.reply,
           userPrompt: userText,
-          appTsx: data.appTsx,
+          appTsx: safeAppTsx,
           extraFiles: data.extraFiles,
           ...(data.changedFiles?.length ? { changedFiles: data.changedFiles } : {}),
           planClarifications: undefined,
         })
+        void refreshBalance()
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Something went wrong"
         toast.error(msg)
@@ -680,15 +713,17 @@ export function ChatPanel({
             : msg,
         ),
       )
+      const safeAppTsx = data.appTsx?.trim() ? data.appTsx : FALLBACK_PREVIEW_APP_TSX
       onGenerateSuccess({
         reply: data.reply,
         userPrompt: userGoal,
-        appTsx: data.appTsx,
+        appTsx: safeAppTsx,
         extraFiles: data.extraFiles,
         ...(data.changedFiles?.length ? { changedFiles: data.changedFiles } : {}),
         approvedPlan: plan,
         planClarifications: clarifications.length ? clarifications : undefined,
       })
+      void refreshBalance()
       pendingPlanMessageIdRef.current = null
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong"
@@ -945,10 +980,10 @@ export function ChatPanel({
             onKeyDown={handleKeyDown}
             placeholder={
               quickBuild
-                ? "Describe what you want to build…"
+                ? t("chat_placeholder_quick")
                 : hasGenerated && !replan
-                  ? "Describe the change you want (we’ll edit the current version without re-planning)…"
-                  : "Describe your product; we will plan first, then you confirm to build…"
+                  ? t("chat_placeholder_patch")
+                  : t("chat_placeholder_plan")
             }
             className="min-h-[80px] max-h-[200px] resize-none border-0 bg-transparent focus-visible:ring-0 pr-12 text-sm"
           />
@@ -961,7 +996,7 @@ export function ChatPanel({
                       <Paperclip className="size-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Coming soon</TooltipContent>
+                  <TooltipContent>{t("chat_tooltip_coming_soon")}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -969,7 +1004,7 @@ export function ChatPanel({
                       <ImageIcon className="size-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Coming soon</TooltipContent>
+                  <TooltipContent>{t("chat_tooltip_coming_soon")}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -983,7 +1018,7 @@ export function ChatPanel({
                       <Database className="size-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Integrations</TooltipContent>
+                  <TooltipContent>{t("chat_tooltip_integrations")}</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             </div>
@@ -995,12 +1030,12 @@ export function ChatPanel({
               className="gap-2"
             >
               {isLoading ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-              {quickBuild ? "Generate" : hasGenerated && !replan ? "Apply" : "Continue"}
+              {quickBuild ? t("chat_generate") : hasGenerated && !replan ? t("chat_apply") : t("chat_continue")}
             </Button>
           </div>
         </div>
         <p className="text-xs text-muted-foreground text-center">
-          Please review the plan and preview before publishing.
+          {t("chat_footer_note")}
         </p>
       </div>
     </div>

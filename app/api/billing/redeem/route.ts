@@ -26,19 +26,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid promo code" }, { status: 400 })
     }
 
-    const admin = getBuildAiSupabaseAdmin()
-    const used = await admin
-      .from("credits_ledger")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("kind", "promo")
-      .eq("meta->>promo_code", code)
-      .limit(1)
-    if (used.error) throw new Error(used.error.message)
-    if ((used.data?.length ?? 0) > 0) {
-      return NextResponse.json({ error: "Promo code already redeemed" }, { status: 409 })
-    }
-
     await insertCreditsLedgerEntry({
       userId,
       kind: "promo",

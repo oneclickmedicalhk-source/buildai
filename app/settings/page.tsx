@@ -39,7 +39,7 @@ function toNum(n: unknown): number {
 }
 
 export default function SettingsPage() {
-  const { accessToken, user, signOut } = useAuth()
+  const { accessToken, user, signOut, refreshBalance } = useAuth()
   const { lang } = useI18n()
   const [tab, setTab] = useState("billing")
   const [balance, setBalance] = useState<number | null>(null)
@@ -112,6 +112,7 @@ export default function SettingsPage() {
       if (typeof data.balanceUsd === "number") setBalance(data.balanceUsd)
       toast.success(lang === "zh-HK" ? "兌換成功" : "Redeemed")
       setPromoCode("")
+      void refreshBalance()
       void refresh()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Redeem failed")
@@ -203,8 +204,8 @@ export default function SettingsPage() {
                 <div className="text-sm font-medium">{lang === "zh-HK" ? "優惠碼" : "Promo code"}</div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {lang === "zh-HK"
-                    ? "輸入優惠碼即可加 credit（每個帳戶通常只可用一次）。"
-                    : "Enter a promo code to add credits (usually once per account)."}
+                    ? "輸入優惠碼即可加 credit（需要登入）。"
+                    : "Enter a promo code to add credits (sign-in required)."}
                 </p>
                 <div className="mt-3 flex flex-col sm:flex-row gap-2">
                   <div className="flex-1">
@@ -215,7 +216,7 @@ export default function SettingsPage() {
                       id="promo"
                       value={promoCode}
                       onChange={(e) => setPromoCode(e.target.value)}
-                      placeholder={lang === "zh-HK" ? "例如：FREE10" : "e.g. FREE10"}
+                      placeholder={lang === "zh-HK" ? "輸入優惠碼" : "Enter promo code"}
                     />
                   </div>
                   <Button type="button" onClick={() => void redeemPromo()} disabled={redeeming || !promoCode.trim()}>
