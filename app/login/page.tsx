@@ -4,13 +4,18 @@ import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
-import { getBuildAiSupabaseBrowser } from "@/lib/auth/buildai-supabase-browser"
+import {
+  getBuildAiSupabaseBrowser,
+  isBuildAiSupabaseBrowserConfigured,
+} from "@/lib/auth/buildai-supabase-browser"
 import { useAuth } from "@/components/auth-context"
 import { useI18n } from "@/components/i18n-context"
+import { toast } from "sonner"
 
 export default function LoginPage() {
   const router = useRouter()
-  const supabase = useMemo(() => getBuildAiSupabaseBrowser(), [])
+  const supabaseConfigured = useMemo(() => isBuildAiSupabaseBrowserConfigured(), [])
+  const supabase = useMemo(() => (supabaseConfigured ? getBuildAiSupabaseBrowser() : null), [supabaseConfigured])
   const { user, loading } = useAuth()
   const { t } = useI18n()
   const [busy, setBusy] = useState(false)
@@ -21,6 +26,10 @@ export default function LoginPage() {
   }
 
   const handleGoogle = async () => {
+    if (!supabase) {
+      toast.error("Sign-in is not configured. Add Supabase URL + anon key in Vercel (see .env.example).")
+      return
+    }
     try {
       setBusy(true)
       const origin = window.location.origin

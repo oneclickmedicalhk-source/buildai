@@ -2,7 +2,10 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react"
 import type { Session, User } from "@supabase/supabase-js"
-import { getBuildAiSupabaseBrowser } from "@/lib/auth/buildai-supabase-browser"
+import {
+  getBuildAiSupabaseBrowser,
+  isBuildAiSupabaseBrowserConfigured,
+} from "@/lib/auth/buildai-supabase-browser"
 
 type AuthValue = {
   user: User | null
@@ -43,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       accessToken: session?.access_token ?? null,
       loading,
       signOut: async () => {
-        await supabase.auth.signOut()
+        if (supabase) await supabase.auth.signOut()
       },
     }),
     [session, loading, supabase],

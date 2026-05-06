@@ -2,16 +2,24 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { getBuildAiSupabaseBrowser } from "@/lib/auth/buildai-supabase-browser"
+import {
+  getBuildAiSupabaseBrowser,
+  isBuildAiSupabaseBrowserConfigured,
+} from "@/lib/auth/buildai-supabase-browser"
 import { useI18n } from "@/components/i18n-context"
 
 export default function AuthCallbackPage() {
   const router = useRouter()
-  const supabase = useMemo(() => getBuildAiSupabaseBrowser(), [])
+  const configured = useMemo(() => isBuildAiSupabaseBrowserConfigured(), [])
+  const supabase = useMemo(() => (configured ? getBuildAiSupabaseBrowser() : null), [configured])
   const [error, setError] = useState<string | null>(null)
   const { t } = useI18n()
 
   useEffect(() => {
+    if (!supabase) {
+      setError("Sign-in is not configured on this deployment.")
+      return
+    }
     // Supabase-js will detect session in URL and persist it.
     // We just wait a tick and return to the app.
     const t = window.setTimeout(async () => {

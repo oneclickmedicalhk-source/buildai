@@ -7,6 +7,11 @@ function readEnv(name: string): string | null {
   return v?.trim() ? v : null
 }
 
+/** True when Vercel has public Supabase URL + anon key — auth and API Bearer tokens apply. */
+export function isBuildAiSupabaseBrowserConfigured(): boolean {
+  return Boolean(readEnv("NEXT_PUBLIC_BUILDAI_SUPABASE_URL") && readEnv("NEXT_PUBLIC_BUILDAI_SUPABASE_ANON_KEY"))
+}
+
 export function getBuildAiSupabaseBrowser(): SupabaseClient {
   if (cached) return cached
   const url = readEnv("NEXT_PUBLIC_BUILDAI_SUPABASE_URL")

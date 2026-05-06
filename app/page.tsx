@@ -31,6 +31,7 @@ import type { ChatGenerateSuccess } from "@/components/chat-panel"
 import type { GenerateResponse } from "@/lib/ai-generate-schema"
 import { toast } from "sonner"
 import { useAuth } from "@/components/auth-context"
+import { isBuildAiSupabaseBrowserConfigured } from "@/lib/auth/buildai-supabase-browser"
 
 function SearchParamEffects({
   onOpenPublish,
@@ -70,19 +71,8 @@ function SearchParamEffects({
 export default function BuilderPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
+  const authRequired = useMemo(() => isBuildAiSupabaseBrowserConfigured(), [])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  useEffect(() => {
-    if (authLoading) return
-    if (!user) router.replace("/login")
-  }, [user, authLoading, router])
-
-  if (!authLoading && !user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6 text-sm text-muted-foreground">
-        Redirecting to sign in…
-      </div>
-    )
-  }
   const [previewExpanded, setPreviewExpanded] = useState(false)
   const [hydrated, setHydrated] = useState(false)
   const syncRef = useRef<SyncEngine | null>(null)
@@ -473,8 +463,28 @@ export default function BuilderPage() {
     setSidebarCollapsed(false)
   }, [])
 
+  useEffect(() => {
+    if (!authRequired) return
+    if (authLoading) return
+    if (!user) router.replace("/login")
+  }, [authRequired, authLoading, user, router])
+
+  if (authRequired && !authLoading && !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 text-sm text-muted-foreground">
+        Redirecting to sign in…
+      </div>
+    )
+  }
+
   return (
     <div className="h-[100dvh] flex flex-col overflow-hidden">
+      {!authRequired ? (
+        <div className="shrink-0 border-b border-amber-500/30 bg-amber-950/25 px-3 py-2 text-center text-[11px] sm:text-xs text-amber-200/95">
+          Demo mode: Supabase URL + anon key are not set in Vercel — you can browse the builder. Add env vars +
+          redeploy for Google sign-in, credits, and AI APIs.
+        </div>
+      ) : null}
       <Suspense fallback={null}>
         <SearchParamEffects
           onOpenPublish={() => setPublishOpen(true)}
