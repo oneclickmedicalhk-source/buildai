@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import type { PlanQuestion, PlanSnapshot } from "@/lib/plan-schema"
 import { CheckCircle2, Hammer, ListTodo, Map, PencilLine } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useI18n } from "@/components/i18n-context"
 
 export interface PlanReviewCardProps {
   plan: PlanSnapshot
@@ -47,6 +48,7 @@ function allowCustomOf(q: PlanQuestion): boolean {
  * Shows the approved plan structure, A–D style choices (single or multi), optional “Other” text, and build actions.
  */
 export function PlanReviewCard({ plan, disabled, onConfirmBuild, onRevisePlan }: PlanReviewCardProps) {
+  const { t } = useI18n()
   /** Selected answer labels per question (single = at most one). */
   const [selectedLabels, setSelectedLabels] = useState<Record<string, string[]>>({})
   const [customByQuestion, setCustomByQuestion] = useState<Record<string, string>>({})
@@ -81,7 +83,8 @@ export function PlanReviewCard({ plan, disabled, onConfirmBuild, onRevisePlan }:
           answer = parts[0] ?? ""
         }
         if (custom) {
-          answer = answer ? `${answer} | Other: ${custom}` : `Other: ${custom}`
+          const other = t("plan_other_label").split("（")[0].split("(")[0].trim() || "Other"
+          answer = answer ? `${answer} | ${other}: ${custom}` : `${other}: ${custom}`
         }
         return answer ? { questionId: q.id, answer } : null
       })
@@ -139,7 +142,7 @@ export function PlanReviewCard({ plan, disabled, onConfirmBuild, onRevisePlan }:
             <Map className="size-3 shrink-0" />
             {plan.industry}
           </Badge>
-          <span className="text-xs text-muted-foreground">Review the plan, then build.</span>
+          <span className="text-xs text-muted-foreground">{t("plan_review_hint")}</span>
         </div>
         <p className="text-sm text-foreground leading-relaxed">{plan.summary}</p>
       </header>
@@ -230,12 +233,12 @@ export function PlanReviewCard({ plan, disabled, onConfirmBuild, onRevisePlan }:
                 {allowCustom ? (
                   <div className="space-y-1 pt-1">
                     <label className="text-[10px] text-muted-foreground" htmlFor={`plan-custom-${q.id}`}>
-                      Other (required if you did not pick an option)
+                      {t("plan_other_label")}
                     </label>
                     <Input
                       id={`plan-custom-${q.id}`}
                       disabled={disabled || !isActive}
-                      placeholder="Type your answer…"
+                      placeholder={t("plan_other_placeholder")}
                       value={customByQuestion[q.id] ?? ""}
                       onChange={(e) =>
                         setCustomByQuestion((prev) => ({
@@ -249,7 +252,7 @@ export function PlanReviewCard({ plan, disabled, onConfirmBuild, onRevisePlan }:
                   </div>
                 ) : null}
                 {showError ? (
-                  <p className="text-[11px] text-destructive">Please answer this question before continuing.</p>
+                  <p className="text-[11px] text-destructive">{t("plan_answer_required")}</p>
                 ) : null}
 
                 {isActive && questions.length > 1 ? (

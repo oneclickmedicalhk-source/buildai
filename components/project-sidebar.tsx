@@ -28,6 +28,7 @@ import {
   Settings,
   Layers,
   ClipboardList,
+  Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { BuilderIntegrations, BuilderProject } from "@/lib/builder-types"
@@ -50,6 +51,7 @@ export function ProjectSidebar({
   showLocalMode = true,
   onNewProject,
   onSelectProject,
+  onDeleteProject,
   onRestoreVersion,
   onOpenIntegrations,
   onExpand,
@@ -61,6 +63,7 @@ export function ProjectSidebar({
   showLocalMode?: boolean
   onNewProject: () => void
   onSelectProject: (id: string) => void
+  onDeleteProject: (id: string) => void
   onRestoreVersion: (projectId: string, versionId: string) => void
   onOpenIntegrations: (tab?: IntegrationTab) => void
   onExpand: () => void
@@ -189,32 +192,52 @@ export function ProjectSidebar({
             </CollapsibleTrigger>
             <CollapsibleContent className="mt-2 space-y-1">
               {sortedProjects.map((project) => (
-                <button
+                <div
                   key={project.id}
-                  type="button"
-                  onClick={() => onSelectProject(project.id)}
                   className={cn(
-                    "w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent transition-colors text-left group",
+                    "w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-sidebar-accent transition-colors group",
                     project.id === activeProjectId && "bg-sidebar-accent",
                   )}
                 >
-                  <FileCode2 className="size-4 text-muted-foreground shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm truncate">{project.name}</span>
-                      {project.id === activeProjectId && integrations.supabase ? (
-                        <span className="inline-flex" title="Supabase configured">
-                          <Database className="size-3 text-accent shrink-0" />
-                        </span>
-                      ) : null}
+                  <button
+                    type="button"
+                    onClick={() => onSelectProject(project.id)}
+                    className="flex items-center gap-3 text-left min-w-0 flex-1"
+                  >
+                    <FileCode2 className="size-4 text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm truncate">{project.name}</span>
+                        {project.id === activeProjectId && integrations.supabase ? (
+                          <span className="inline-flex" title="Supabase configured">
+                            <Database className="size-3 text-accent shrink-0" />
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>v{project.versions.length}</span>
+                        <span>•</span>
+                        <span>{formatDistanceToNow(project.updatedAt, { addSuffix: true })}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>v{project.versions.length}</span>
-                      <span>•</span>
-                      <span>{formatDistanceToNow(project.updatedAt, { addSuffix: true })}</span>
-                    </div>
-                  </div>
-                </button>
+                  </button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      const ok = window.confirm(`Delete project \"${project.name}\"? This cannot be undone.`)
+                      if (!ok) return
+                      onDeleteProject(project.id)
+                    }}
+                    aria-label="Delete project"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
               ))}
             </CollapsibleContent>
           </Collapsible>

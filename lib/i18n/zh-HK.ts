@@ -113,6 +113,10 @@ export const zhHK = {
   topup_title: "充值 credit",
   topup_desc: "你嘅餘額不足以繼續。請先充值，然後返嚟按「繼續上次生成」。",
   topup_cta: "去收費 / 充值",
+  plan_review_hint: "睇清楚計劃，再開始生成。",
+  plan_other_label: "其他（如果你冇揀任何選項就必須填）",
+  plan_other_placeholder: "輸入你嘅答案…",
+  plan_answer_required: "請先回答呢條問題先可以繼續。",
 
   preview_title_empty: "預覽會喺度出現",
   preview_desc_empty:

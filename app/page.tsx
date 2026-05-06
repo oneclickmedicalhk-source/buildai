@@ -408,8 +408,27 @@ export default function BuilderPage() {
 
   const handleSelectProject = useCallback(
     (id: string) => {
+      const current = persisted.projects.find((x) => x.id === persisted.activeProjectId) ?? null
+      const isEmpty = (p: typeof current) => {
+        if (!p) return false
+        const name = String(p.name || "")
+        const emptyName = name === "Untitled" || name === "My first project"
+        const noVersions = (p.versions?.length ?? 0) === 0
+        const noChat = (p.chatThread?.length ?? 0) === 0
+        return emptyName && noVersions && noChat
+      }
+
+      // Prune empty project when user navigates away.
+      if (current && current.id !== id && isEmpty(current)) {
+        setPersisted((prev) => {
+          const projects = prev.projects.filter((p) => p.id !== current.id)
+          return { ...prev, projects, activeProjectId: id }
+        })
+      } else {
+        setPersisted((prev) => ({ ...prev, activeProjectId: id }))
+      }
+
       const proj = persisted.projects.find((x) => x.id === id)
-      setPersisted((prev) => ({ ...prev, activeProjectId: id }))
       if (!proj) return
       const last = proj.versions[proj.versions.length - 1]
       if (last) {
@@ -427,6 +446,28 @@ export default function BuilderPage() {
       }
     },
     [persisted.projects],
+  )
+
+  const handleDeleteProject = useCallback(
+    (id: string) => {
+      setPersisted((prev) => {
+        const projects = prev.projects.filter((p) => p.id !== id)
+        const nextActive =
+          prev.activeProjectId === id
+            ? (projects.sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id ?? null)
+            : prev.activeProjectId
+        return { ...prev, projects, activeProjectId: nextActive }
+      })
+      // Reset preview state if active was deleted; effect above will reload last version.
+      if (persisted.activeProjectId === id) {
+        setModelFiles({})
+        setHasGenerated(false)
+        setGeneratedTitle("")
+        setLastUserPrompt("")
+        setCurrentVersionId(null)
+      }
+    },
+    [persisted.activeProjectId],
   )
 
   const handleRestoreVersion = useCallback(
@@ -664,6 +705,7 @@ export default function BuilderPage() {
           showLocalMode={!user}
           onNewProject={handleNewProject}
           onSelectProject={handleSelectProject}
+          onDeleteProject={handleDeleteProject}
           onRestoreVersion={handleRestoreVersion}
           onOpenIntegrations={openIntegrations}
           onExpand={() => setSidebarCollapsed(false)}

@@ -67,6 +67,7 @@ interface Message {
     | "waiting_confirm"
     | "codegen_request"
     | "codegen_parse"
+    | "done"
   generatedComponent?: boolean
   changedFiles?: string[]
   /** When set, this assistant turn is a plan awaiting user confirmation. */
@@ -137,6 +138,20 @@ function normalizePreviewFiles(appTsx: string, extraFiles?: Record<string, strin
   return out
 }
 
+function buildFallbackErrorAppTsx(args: { title: string; detail: string }): string {
+  const title = args.title.replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  const detail = args.detail.replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  return `export default function App() {
+  return (
+    <div style={{ padding: 24, fontFamily: "ui-sans-serif, system-ui" }}>
+      <h1 style={{ fontSize: 18, fontWeight: 700 }}>${title}</h1>
+      <p style={{ marginTop: 8, color: "#555", whiteSpace: "pre-wrap" }}>${detail}</p>
+    </div>
+  )
+}
+`
+}
+
 function GeneratingStatus({
   label,
   stage,
@@ -146,11 +161,12 @@ function GeneratingStatus({
 }) {
   const { t } = useI18n()
   const percentByStage: Partial<Record<NonNullable<Message["generatingStage"]>, number>> = {
-    planning_request: 10,
-    planning_parse: 35,
-    waiting_confirm: 50,
-    codegen_request: 70,
-    codegen_parse: 90,
+    planning_request: 20,
+    planning_parse: 45,
+    waiting_confirm: 55,
+    codegen_request: 75,
+    codegen_parse: 95,
+    done: 100,
   }
   const lines: Record<
     NonNullable<Message["generatingStage"]>,
@@ -183,9 +199,28 @@ function GeneratingStatus({
       ? { title: t("chat_status_planning_request_title"), detail: t("chat_status_planning_request_detail") }
       : { title: t("chat_status_codegen_request_title"), detail: t("chat_status_codegen_request_detail") }
 
-  const cur = stage ? lines[stage] : fallback
-  const pct = stage ? percentByStage[stage] : undefined
-  const title = pct != null ? `${cur.title} (${pct}%)` : cur.title
+  const cur = stage && stage in lines ? lines[stage as Exclude<Message["generatingStage"], "done">] : fallback
+  const targetPct = stage ? percentByStage[stage] : undefined
+  const [displayPct, setDisplayPct] = useState<number>(1)
+
+  useEffect(() => {
+    // Smooth, non-decreasing progress toward stage target. Avoids sudden 10→70 jumps and 90% stalls.
+    const target = Math.max(displayPct, targetPct ?? (label === "planning" ? 40 : 80))
+    const id = window.setInterval(() => {
+      setDisplayPct((prev) => {
+        const t = stage === "done" ? 100 : target
+        if (prev >= t) return prev
+        const remaining = t - prev
+        // Ease-out: larger steps early, smaller near the target.
+        const step = Math.max(1, Math.min(6, Math.ceil(remaining / 12)))
+        return Math.min(t, prev + step)
+      })
+    }, 120)
+    return () => window.clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, targetPct, label])
+
+  const title = `${cur.title} (${displayPct}%)`
 
   return (
     <div className="space-y-1 text-sm">
@@ -372,6 +407,7 @@ export function ChatPanel({
     () => ({
       supabaseConfigured,
       aiProvider,
+      uiLang: lang,
       uiStyleKit,
       themeId,
       themeVariantId,
@@ -555,6 +591,17 @@ export function ChatPanel({
             refineKind: "edit",
             editOutput: "patch",
           })
+          // If patch application failed server-side (context mismatch), fall back to a full rewrite.
+          // This reduces cases where users are charged but preview cannot be updated.
+          if (!cur?.appTsx?.trim()) {
+            cur = await callGenerate([...historyForApi, repairInstruction], {
+              approvedPlan: opts.approvedPlan,
+              clarifications: opts.clarifications,
+              refineFrom: { appTsx: cur.appTsx, extraFiles: cur.extraFiles },
+              refineKind: "edit",
+              editOutput: "full",
+            })
+          }
         }
       }
 
@@ -615,14 +662,24 @@ export function ChatPanel({
               ? {
                   ...msg,
                   content: data.reply,
-                  isGenerating: false,
-                  generatingLabel: undefined,
+                  generatingStage: "done",
+                  generatingLabel: msg.generatingLabel,
+                  isGenerating: true,
                   generatedComponent: true,
                   ...(data.changedFiles?.length ? { changedFiles: data.changedFiles } : {}),
                 }
               : msg,
           ),
         )
+        window.setTimeout(() => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, isGenerating: false, generatingStage: undefined, generatingLabel: undefined }
+                : m,
+            ),
+          )
+        }, 550)
         const safeAppTsx = data.appTsx?.trim() ? data.appTsx : FALLBACK_PREVIEW_APP_TSX
         onGenerateSuccess({
           reply: data.reply,
@@ -637,7 +694,18 @@ export function ChatPanel({
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Something went wrong"
         toast.error(msg)
-        setMessages((prev) => prev.filter((m) => m.id !== assistantId))
+        const fallback = buildFallbackErrorAppTsx({
+          title: "Preview update failed",
+          detail: `We received a response, but could not safely apply it.\n\n${msg}\n\nTry: click Refresh, or describe what you want fixed.`,
+        })
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, content: msg, isGenerating: false, generatingStage: undefined, generatingLabel: undefined, generatedComponent: true }
+              : m,
+          ),
+        )
+        onGenerateSuccess({ reply: msg, userPrompt: userText, appTsx: fallback })
       } finally {
         setIsLoading(false)
       }
@@ -670,14 +738,24 @@ export function ChatPanel({
               ? {
                   ...msg,
                   content: data.reply,
-                  isGenerating: false,
-                  generatingLabel: undefined,
+                  generatingStage: "done",
+                  generatingLabel: msg.generatingLabel,
+                  isGenerating: true,
                   generatedComponent: true,
                   ...(data.changedFiles?.length ? { changedFiles: data.changedFiles } : {}),
                 }
               : msg,
           ),
         )
+        window.setTimeout(() => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, isGenerating: false, generatingStage: undefined, generatingLabel: undefined }
+                : m,
+            ),
+          )
+        }, 550)
         const safeAppTsx = data.appTsx?.trim() ? data.appTsx : FALLBACK_PREVIEW_APP_TSX
         onGenerateSuccess({
           reply: data.reply,
@@ -691,7 +769,18 @@ export function ChatPanel({
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Something went wrong"
         toast.error(msg)
-        setMessages((prev) => prev.filter((m) => m.id !== assistantId))
+        const fallback = buildFallbackErrorAppTsx({
+          title: "Preview update failed",
+          detail: `We received a response, but could not safely apply it.\n\n${msg}\n\nTry: click Refresh, or describe what you want fixed.`,
+        })
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, content: msg, isGenerating: false, generatingStage: undefined, generatingLabel: undefined, generatedComponent: true }
+              : m,
+          ),
+        )
+        onGenerateSuccess({ reply: msg, userPrompt: userText, appTsx: fallback })
       } finally {
         setIsLoading(false)
       }
@@ -783,14 +872,24 @@ export function ChatPanel({
             ? {
                 ...msg,
                 content: data.reply,
-                isGenerating: false,
-                generatingLabel: undefined,
+                generatingStage: "done",
+                generatingLabel: msg.generatingLabel,
+                isGenerating: true,
                 generatedComponent: true,
                 ...(data.changedFiles?.length ? { changedFiles: data.changedFiles } : {}),
               }
             : msg,
         ),
       )
+      window.setTimeout(() => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, isGenerating: false, generatingStage: undefined, generatingLabel: undefined }
+              : m,
+          ),
+        )
+      }, 550)
       const safeAppTsx = data.appTsx?.trim() ? data.appTsx : FALLBACK_PREVIEW_APP_TSX
       onGenerateSuccess({
         reply: data.reply,
@@ -806,7 +905,18 @@ export function ChatPanel({
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong"
       toast.error(msg)
-      setMessages((prev) => prev.filter((m) => m.id !== assistantId))
+      const fallback = buildFallbackErrorAppTsx({
+        title: "Preview update failed",
+        detail: `We received a response, but could not safely apply it.\n\n${msg}\n\nTry: click Refresh, or describe what you want fixed.`,
+      })
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? { ...m, content: msg, isGenerating: false, generatingStage: undefined, generatingLabel: undefined, generatedComponent: true }
+            : m,
+        ),
+      )
+      onGenerateSuccess({ reply: msg, userPrompt: userGoal, appTsx: fallback })
     } finally {
       setIsLoading(false)
     }

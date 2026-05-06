@@ -18,7 +18,7 @@ import {
   canUseFreeFirstBuildWaiver,
   currentMonthKeyUtc,
   getUserCreditBalanceUsd,
-  insertCreditsLedgerEntry,
+  insertCreditsLedgerEntriesSplit,
   insertUsageEvent,
   maybeGrantFreeMonthlyCredits,
 } from "@/lib/service/credits"
@@ -51,12 +51,16 @@ export async function POST(req: Request) {
 
     const systemJsonHint =
       "Return **only** one JSON object with keys reply and plan. No markdown fences, no text before or after the JSON. Do not include appTsx or code."
+    const langHint =
+      body.flags?.uiLang === "zh-HK"
+        ? "Important: Output MUST be Traditional Chinese (Hong Kong). This includes reply, plan.summary, assumptions, openQuestions.question, suggestedAnswers, options labels, buildTodos, and designNotes."
+        : "Important: Output MUST be English."
 
     // Pre-auth: block if balance is clearly insufficient (conservative estimate).
     const bal = await getUserCreditBalanceUsd(userId)
     const preauth = estimatePreauthChargeUsd({
       aiProviderChoice: body.flags?.aiProvider,
-      inputText: `${systemJsonHint}\n\n${lastUser}`,
+      inputText: `${langHint}\n\n${systemJsonHint}\n\n${lastUser}`,
       assumedOutputTokens: 1000,
       markupMin: 5,
     })
@@ -90,8 +94,8 @@ export async function POST(req: Request) {
 
     const system =
       provider === "vertex_claude" || provider === "vertex_gemini"
-        ? `${baseSystemWithTheme}\n\n${systemJsonHint}`
-        : `${baseSystemWithTheme}\n\n${systemJsonHint}`
+        ? `${baseSystemWithTheme}\n\n${langHint}\n\n${systemJsonHint}`
+        : `${baseSystemWithTheme}\n\n${langHint}\n\n${systemJsonHint}`
 
     let parsed: unknown
 
@@ -172,10 +176,11 @@ export async function POST(req: Request) {
     const capped = firstBuild
       ? await applyFreeFirstBuildCap({ userId, phase: "plan", chargedUsd: usage.chargedUsd, capUsd: 3 })
       : { finalChargedUsd: usage.chargedUsd, discountUsd: 0 }
-    await insertCreditsLedgerEntry({
+    await insertCreditsLedgerEntriesSplit({
       userId,
       kind: "usage_charge",
-      amountUsd: -capped.finalChargedUsd,
+      totalChargeUsd: capped.finalChargedUsd,
+      splitUsd: 1,
       meta: firstBuild
         ? { kind: "first_build", month: currentMonthKeyUtc(), phase: "plan", provider: usage.provider, model: usage.model }
         : { kind: "plan", provider: usage.provider, model: usage.model },

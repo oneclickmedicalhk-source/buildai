@@ -1,4 +1,5 @@
 import { getBuildAiSupabaseAdmin } from "@/lib/auth/buildai-supabase-admin"
+import crypto from "node:crypto"
 
 export type CreditBalance = {
   balanceUsd: number
@@ -179,6 +180,55 @@ export async function insertCreditsLedgerEntry(params: {
     meta: params.meta ?? {},
   })
   if (res.error) throw new Error(res.error.message)
+}
+
+export async function insertCreditsLedgerEntriesSplit(params: {
+  userId: string
+  kind: "usage_charge"
+  /** Positive USD amount to be charged; this helper will insert negative ledger rows. */
+  totalChargeUsd: number
+  /** Optional split step. Defaults to $1.00. */
+  splitUsd?: number
+  meta?: Record<string, unknown>
+  /** Optional request id used to correlate multiple rows. */
+  requestId?: string
+}): Promise<{ requestId: string; parts: number }> {
+  const total = Math.max(0, Math.round(params.totalChargeUsd * 100) / 100)
+  if (total <= 0) {
+    return { requestId: params.requestId ?? crypto.randomUUID(), parts: 0 }
+  }
+
+  const step = Math.max(0.01, Math.round((params.splitUsd ?? 1) * 100) / 100)
+  const requestId = params.requestId ?? crypto.randomUUID()
+
+  const parts: number[] = []
+  let remaining = total
+  while (remaining > 0) {
+    const part = Math.min(step, remaining)
+    // Keep cents consistent.
+    const rounded = Math.round(part * 100) / 100
+    parts.push(rounded)
+    remaining = Math.round((remaining - rounded) * 100) / 100
+    // Safety guard against floating loops.
+    if (parts.length > 200) break
+  }
+
+  const admin = getBuildAiSupabaseAdmin()
+  const rows = parts.map((p, idx) => ({
+    user_id: params.userId,
+    ts: Date.now(),
+    kind: params.kind,
+    amount_usd: -p,
+    meta: {
+      ...(params.meta ?? {}),
+      request_id: requestId,
+      part_index: idx + 1,
+      parts_total: parts.length,
+    },
+  }))
+  const res = await admin.from("credits_ledger").insert(rows)
+  if (res.error) throw new Error(res.error.message)
+  return { requestId, parts: parts.length }
 }
 
 export async function insertUsageEvent(params: {

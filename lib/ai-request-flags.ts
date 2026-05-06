@@ -9,6 +9,8 @@ export const aiRequestFlagsSchema = z.object({
   supabaseConfigured: z.boolean().optional(),
   /** Per-request model routing; omit or "auto" uses server env + `resolveAiProvider()`. */
   aiProvider: z.enum(["auto", "openai", "vertex_claude", "vertex_gemini"]).optional(),
+  /** UI language hint to localize planner output (reply, plan, questions). */
+  uiLang: z.enum(["en", "zh-HK"]).optional(),
   /** Optional visual framework preset (appended to system prompts). */
   uiStyleKit: uiStyleKitSchema.optional(),
   /** Visual palette/mood preset; `auto` infers from prompt + plan keywords. */

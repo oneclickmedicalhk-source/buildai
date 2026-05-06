@@ -116,6 +116,10 @@ export const en = {
   topup_title: "Top up credits",
   topup_desc: "Your balance is too low to continue. Top up, then come back and resume.",
   topup_cta: "Go to billing / top up",
+  plan_review_hint: "Review the plan, then build.",
+  plan_other_label: "Other (required if you did not pick an option)",
+  plan_other_placeholder: "Type your answer…",
+  plan_answer_required: "Please answer this question before continuing.",
 
   preview_title_empty: "Preview will appear here",
   preview_desc_empty:

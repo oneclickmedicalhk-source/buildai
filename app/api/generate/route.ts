@@ -25,7 +25,7 @@ import {
   canUseFreeFirstBuildWaiver,
   currentMonthKeyUtc,
   getUserCreditBalanceUsd,
-  insertCreditsLedgerEntry,
+  insertCreditsLedgerEntriesSplit,
   insertUsageEvent,
   maybeGrantFreeMonthlyCredits,
 } from "@/lib/service/credits"
@@ -284,10 +284,11 @@ export async function POST(req: Request) {
       const capped = firstBuild
         ? await applyFreeFirstBuildCap({ userId, phase: "generate", chargedUsd: usage.chargedUsd, capUsd: 3 })
         : { finalChargedUsd: usage.chargedUsd, discountUsd: 0 }
-      await insertCreditsLedgerEntry({
+      await insertCreditsLedgerEntriesSplit({
         userId,
         kind: "usage_charge",
-        amountUsd: -capped.finalChargedUsd,
+        totalChargeUsd: capped.finalChargedUsd,
+        splitUsd: 1,
         meta: firstBuild
           ? { kind: "first_build", month: currentMonthKeyUtc(), phase: "generate", provider: usage.provider, model: usage.model }
           : { kind: "generate", provider: usage.provider, model: usage.model },
@@ -325,10 +326,11 @@ export async function POST(req: Request) {
     const capped = firstBuild
       ? await applyFreeFirstBuildCap({ userId, phase: "generate", chargedUsd: usage.chargedUsd, capUsd: 3 })
       : { finalChargedUsd: usage.chargedUsd, discountUsd: 0 }
-    await insertCreditsLedgerEntry({
+    await insertCreditsLedgerEntriesSplit({
       userId,
       kind: "usage_charge",
-      amountUsd: -capped.finalChargedUsd,
+      totalChargeUsd: capped.finalChargedUsd,
+      splitUsd: 1,
       meta: firstBuild
         ? { kind: "first_build", month: currentMonthKeyUtc(), phase: "generate", provider: usage.provider, model: usage.model }
         : { kind: "generate", provider: usage.provider, model: usage.model },
