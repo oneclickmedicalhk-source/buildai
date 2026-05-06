@@ -29,9 +29,9 @@ export async function getUserCreditBalanceUsd(userId: string): Promise<CreditBal
 }
 
 /**
- * Free plan monthly credits: user gets up to $5/month, but cannot accumulate.
- * Implementation: once per month, top up the user's current balance to $5 (if below),
- * otherwise grant nothing. This ensures "at most $5" for free monthly credits.
+ * Free plan monthly credits (testing): user gets up to $10/month, but cannot accumulate.
+ * Implementation: per month, top up the user's current balance to $10 (if below),
+ * otherwise grant nothing. This ensures "at most $10" for free monthly credits.
  */
 export async function maybeGrantFreeMonthlyCredits(userId: string): Promise<void> {
   const admin = getBuildAiSupabaseAdmin()
@@ -42,21 +42,22 @@ export async function maybeGrantFreeMonthlyCredits(userId: string): Promise<void
   if (plan !== "free") return
 
   const key = monthKeyUtc(Date.now())
-  const already = await admin
+  const grants = await admin
     .from("credits_ledger")
-    .select("id")
+    .select("amount_usd")
     .eq("user_id", userId)
     .eq("kind", "monthly_grant")
     .eq("meta->>kind", "free_monthly")
     .eq("meta->>month", key)
-    .limit(1)
-  if (already.error) throw new Error(already.error.message)
-  if ((already.data?.length ?? 0) > 0) return
+  if (grants.error) throw new Error(grants.error.message)
+  const grantedThisMonthUsd = (grants.data ?? []).reduce((sum, r) => sum + toNumber(r.amount_usd), 0)
 
   const bal = await getUserCreditBalanceUsd(userId)
-  const target = 5
+  const target = 10
   const delta = Math.round((target - bal.balanceUsd) * 100) / 100
   if (delta <= 0) return
+  // If we already granted at least target this month, do nothing.
+  if (grantedThisMonthUsd >= target) return
 
   await insertCreditsLedgerEntry({
     userId,
