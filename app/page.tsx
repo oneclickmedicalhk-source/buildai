@@ -32,6 +32,18 @@ import type { GenerateResponse } from "@/lib/ai-generate-schema"
 import { toast } from "sonner"
 import { useAuth } from "@/components/auth-context"
 
+const FALLBACK_RUNTIME_ERROR_APP_TSX = `export default function App() {
+  return (
+    <div style={{ padding: 24, fontFamily: "ui-sans-serif, system-ui" }}>
+      <h1 style={{ fontSize: 18, fontWeight: 700 }}>Preview error</h1>
+      <p style={{ marginTop: 8, color: "#555" }}>
+        The preview hit a runtime error. Please click Refresh or describe what you want fixed.
+      </p>
+    </div>
+  )
+}
+`
+
 function SearchParamEffects({
   onOpenPublish,
   onApplyPreset,
@@ -69,13 +81,17 @@ function SearchParamEffects({
 
 export default function BuilderPage() {
   const router = useRouter()
-  const { user, loading: authLoading, authConfigured } = useAuth()
+  const { user, loading: authLoading, authConfigured, accessToken } = useAuth()
   const [authRequired, setAuthRequired] = useState<boolean>(authConfigured)
   const [authConfigKnown, setAuthConfigKnown] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [previewExpanded, setPreviewExpanded] = useState(false)
   const [hydrated, setHydrated] = useState(false)
   const syncRef = useRef<SyncEngine | null>(null)
+  const runtimeRepairRef = useRef<{ lastFilesKey: string | null; attempts: number }>({
+    lastFilesKey: null,
+    attempts: 0,
+  })
 
   const [persisted, setPersisted] = useState<BuilderPersistedState>(() => createEmptyPersistedState())
   const [modelFiles, setModelFiles] = useState<Record<string, string>>({})
@@ -277,6 +293,103 @@ export default function BuilderPage() {
     setHasGenerated(true)
     setGeneratedTitle(truncate(payload.userPrompt, 40))
   }, [])
+
+  const handleRuntimeQa = useCallback(
+    async (args: { status: "ok" | "error"; message?: string; filesKey: string }) => {
+      if (!hasGenerated) return
+      if (args.status === "ok") {
+        if (runtimeRepairRef.current.lastFilesKey !== args.filesKey) {
+          runtimeRepairRef.current = { lastFilesKey: args.filesKey, attempts: 0 }
+        }
+        return
+      }
+      // runtime error: auto-repair loop (max 2 attempts)
+      if (runtimeRepairRef.current.lastFilesKey !== args.filesKey) {
+        runtimeRepairRef.current = { lastFilesKey: args.filesKey, attempts: 0 }
+      }
+      if (runtimeRepairRef.current.attempts >= 2) {
+        // Guaranteed delivery: still show a visible preview (not blank).
+        handleGenerateSuccess({
+          reply: "Preview runtime error (auto-repair exhausted).",
+          userPrompt: lastUserPrompt || "Runtime error",
+          appTsx: FALLBACK_RUNTIME_ERROR_APP_TSX,
+          extraFiles: undefined,
+        })
+        return
+      }
+      runtimeRepairRef.current.attempts += 1
+
+      if (!accessToken) return
+
+      const proj = persisted.projects.find((p) => p.id === persisted.activeProjectId)
+      const ver = proj?.versions.find((v) => v.id === currentVersionId)
+      const approvedPlan = ver?.approvedPlan
+      const planClarifications = ver?.planClarifications
+
+      const { appTsx: appBody, extraFiles } = splitModelFiles(modelFiles)
+      if (!appBody?.trim()) return
+      const refineFrom = {
+        appTsx: appBody,
+        ...(Object.keys(extraFiles).length > 0 ? { extraFiles } : {}),
+      }
+
+      const err = (args.message ?? "Runtime error").slice(0, 900)
+      toast.message("Auto-fixing runtime errors…", {
+        description: "We’re repairing the preview so it actually runs before showing it as done.",
+      })
+      try {
+        const res = await fetch("/api/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            messages: [
+              {
+                role: "user",
+                content:
+                  `The preview failed at runtime (blank screen or console error).\n\n` +
+                  `Goal (keep behavior + design intent):\n${lastUserPrompt || "Build the requested app"}\n\n` +
+                  `Runtime error:\n${err}\n\n` +
+                  `Fix the runtime error so the app renders correctly. Keep changes minimal and safe.`,
+              },
+            ],
+            flags: { supabaseConfigured: Boolean(persisted.integrations.supabase) },
+            ...(approvedPlan ? { approvedPlan } : {}),
+            ...(planClarifications?.length ? { clarifications: planClarifications } : {}),
+            refineFrom,
+            refineKind: "edit",
+            editOutput: "patch",
+          }),
+        })
+        const data = (await res.json()) as GenerateResponse & { error?: string }
+        if (!res.ok) throw new Error(data.error ?? "Auto-repair failed")
+        handleGenerateSuccess({
+          reply: data.reply,
+          userPrompt: lastUserPrompt || "Auto-repair runtime",
+          appTsx: data.appTsx,
+          extraFiles: data.extraFiles,
+          ...(approvedPlan !== undefined ? { approvedPlan } : {}),
+          ...(planClarifications?.length ? { planClarifications } : {}),
+          ...(data.changedFiles?.length ? { changedFiles: data.changedFiles } : {}),
+        })
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Auto-repair failed")
+      }
+    },
+    [
+      accessToken,
+      currentVersionId,
+      handleGenerateSuccess,
+      hasGenerated,
+      lastUserPrompt,
+      modelFiles,
+      persisted.activeProjectId,
+      persisted.integrations.supabase,
+      persisted.projects,
+    ],
+  )
 
   const handleNewProject = useCallback(() => {
     const p = createProject("Untitled")
@@ -646,6 +759,7 @@ export default function BuilderPage() {
               previewExpanded={previewExpanded}
               onPublish={hasGenerated ? () => setPublishOpen(true) : undefined}
               onPreviewSourcesPatched={hasGenerated ? handlePreviewSourcesPatched : undefined}
+              onRuntimeQa={hasGenerated ? handleRuntimeQa : undefined}
             />
           </div>
         </div>

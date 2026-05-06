@@ -97,6 +97,8 @@ export interface PreviewLocalWorkspaceProps {
   visibleFiles: string[]
   /** When the server auto-repairs TSX (e.g. JSX text `<=`), merge into editor + persistence. */
   onPreviewSourcesPatched?: (files: Record<string, string>) => void
+  /** Notify parent of runtime QA status (ok/error) with a stable files key. */
+  onRuntimeQa?: (args: { status: "ok" | "error"; message?: string; filesKey: string }) => void
 }
 
 /**
@@ -110,6 +112,7 @@ export function PreviewLocalWorkspace({
   sandpackMountKey,
   visibleFiles,
   onPreviewSourcesPatched,
+  onRuntimeQa,
 }: PreviewLocalWorkspaceProps) {
   const lastPatchedDigestRef = useRef<string>("")
   const [copied, setCopied] = useState(false)
@@ -195,15 +198,17 @@ export function PreviewLocalWorkspace({
       if (msg.type === "buildai_runtime_ok") {
         setRuntimeStatus("ok")
         setRuntimeError(null)
+        onRuntimeQa?.({ status: "ok", filesKey })
       } else if (msg.type === "buildai_runtime_error" || msg.type === "buildai_runtime_blank") {
         setRuntimeStatus("error")
         setRuntimeError(msg.message || "Runtime error")
+        onRuntimeQa?.({ status: "error", message: msg.message || "Runtime error", filesKey })
       }
     }
 
     window.addEventListener("message", onMsg)
     return () => window.removeEventListener("message", onMsg)
-  }, [srcDoc, sandpackMountKey])
+  }, [srcDoc, sandpackMountKey, filesKey, onRuntimeQa])
 
   const handleRetry = useCallback(() => {
     setRetrySeq((n) => n + 1)

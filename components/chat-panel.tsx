@@ -80,6 +80,53 @@ type PreviewBundleApiResponse = {
   patchedFiles?: Record<string, string>
 }
 
+type ResumePayload = {
+  kind: "confirm_build" | "quick_build" | "patch_edit"
+  userGoal: string
+  history: { role: "user" | "assistant"; content: string; ts: number }[]
+  opts?: {
+    approvedPlan?: PlanSnapshot
+    clarifications?: { questionId: string; answer: string }[]
+    refineFrom?: { appTsx: string; extraFiles?: Record<string, string> } | null
+    refineKind?: "polish" | "edit"
+    editOutput?: "auto" | "full" | "patch"
+  }
+  ts: number
+}
+
+const RESUME_STORAGE_KEY = "buildai-resume-payload"
+
+function safeReadResumePayload(): ResumePayload | null {
+  try {
+    const raw = localStorage.getItem(RESUME_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as ResumePayload
+    if (!parsed || typeof parsed !== "object") return null
+    if (!parsed.userGoal || typeof parsed.userGoal !== "string") return null
+    if (!parsed.ts || typeof parsed.ts !== "number") return null
+    if (!Array.isArray(parsed.history) || parsed.history.length === 0) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function safeWriteResumePayload(payload: ResumePayload): void {
+  try {
+    localStorage.setItem(RESUME_STORAGE_KEY, JSON.stringify(payload))
+  } catch {
+    /* ignore */
+  }
+}
+
+function safeClearResumePayload(): void {
+  try {
+    localStorage.removeItem(RESUME_STORAGE_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
 function normalizePreviewFiles(appTsx: string, extraFiles?: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = { "/App.tsx": appTsx }
   for (const [k, v] of Object.entries(extraFiles ?? {})) {
@@ -248,6 +295,7 @@ export function ChatPanel({
   const { accessToken, refreshBalance } = useAuth()
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [topupOpen, setTopupOpen] = useState(false)
+  const [resumePayload, setResumePayload] = useState<ResumePayload | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -258,6 +306,16 @@ export function ChatPanel({
   const lastScrolledPlanIdRef = useRef<string | null>(null)
 
   messagesRef.current = messages
+
+  useEffect(() => {
+    const p = safeReadResumePayload()
+    if (!p) return
+    if (Date.now() - p.ts > 24 * 60 * 60 * 1000) {
+      safeClearResumePayload()
+      return
+    }
+    setResumePayload(p)
+  }, [])
 
   useEffect(() => {
     if (messages.length > 0) return
@@ -397,7 +455,27 @@ export function ChatPanel({
     })
     const data = (await res.json()) as GenerateResponse & { error?: string; code?: string }
     if (!res.ok) {
-      if (res.status === 402 || data.code === "INSUFFICIENT_CREDITS") setTopupOpen(true)
+      if (res.status === 402 || data.code === "INSUFFICIENT_CREDITS") {
+        const kind: ResumePayload["kind"] =
+          opts?.refineKind === "edit" || opts?.editOutput === "patch"
+            ? "patch_edit"
+            : opts?.approvedPlan
+              ? "confirm_build"
+              : "quick_build"
+        const userGoal = [...history].reverse().find((m) => m.role === "user")?.content?.trim() || pendingGoalRef.current || "Continue"
+        const payload: ResumePayload = {
+          kind,
+          userGoal,
+          history: history
+            .filter((m) => m.content)
+            .map((m) => ({ role: m.role, content: m.content, ts: m.timestamp.getTime() })),
+          opts,
+          ts: Date.now(),
+        }
+        safeWriteResumePayload(payload)
+        setResumePayload(payload)
+        setTopupOpen(true)
+      }
       throw new Error(data.error ?? "Generation failed")
     }
     return data as GenerateResponse
@@ -757,6 +835,81 @@ export function ChatPanel({
     textareaRef.current?.focus()
   }
 
+  const handleResumeLast = useCallback(async () => {
+    if (isLoading) return
+    const p = safeReadResumePayload()
+    if (!p) {
+      setResumePayload(null)
+      return
+    }
+    if (!p.history?.length) {
+      safeClearResumePayload()
+      setResumePayload(null)
+      return
+    }
+    const history: Message[] = p.history.map((m) => ({
+      id: `resume-${m.ts}-${Math.random().toString(16).slice(2)}`,
+      role: m.role,
+      content: m.content,
+      timestamp: new Date(m.ts),
+    }))
+    const assistantId = (Date.now() + 1).toString()
+    setIsLoading(true)
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        timestamp: new Date(),
+        isGenerating: true,
+        generatingLabel: "building",
+        generatingStage: "codegen_request",
+      },
+    ])
+    try {
+      const first = await callGenerate(history, p.opts)
+      const data = await generateWithBundleGate(history, first, {
+        approvedPlan: p.opts?.approvedPlan,
+        clarifications: p.opts?.clarifications,
+        userGoalForRepair: p.userGoal,
+      })
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === assistantId
+            ? {
+                ...msg,
+                content: data.reply,
+                isGenerating: false,
+                generatingLabel: undefined,
+                generatedComponent: true,
+                ...(data.changedFiles?.length ? { changedFiles: data.changedFiles } : {}),
+              }
+            : msg,
+        ),
+      )
+      const safeAppTsx = data.appTsx?.trim() ? data.appTsx : FALLBACK_PREVIEW_APP_TSX
+      onGenerateSuccess({
+        reply: data.reply,
+        userPrompt: p.userGoal,
+        appTsx: safeAppTsx,
+        extraFiles: data.extraFiles,
+        ...(data.changedFiles?.length ? { changedFiles: data.changedFiles } : {}),
+        ...(p.opts?.approvedPlan ? { approvedPlan: p.opts.approvedPlan } : {}),
+        ...(p.opts?.clarifications?.length ? { planClarifications: p.opts.clarifications } : {}),
+      })
+      safeClearResumePayload()
+      setResumePayload(null)
+      void refreshBalance()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Something went wrong"
+      toast.error(msg)
+      setMessages((prev) => prev.filter((m) => m.id !== assistantId))
+    } finally {
+      setIsLoading(false)
+    }
+  }, [callGenerate, generateWithBundleGate, isLoading, onGenerateSuccess, refreshBalance])
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <TopUpDialog open={topupOpen} onOpenChange={setTopupOpen} />
@@ -890,6 +1043,17 @@ export function ChatPanel({
       </ScrollArea>
 
       <div className="p-4 border-t border-border shrink-0 space-y-3">
+        {resumePayload ? (
+          <div className="rounded-xl border border-border bg-card/40 p-3 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">{t("chat_resume_last")}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{t("chat_resume_last_desc")}</div>
+            </div>
+            <Button type="button" size="sm" className="shrink-0" onClick={() => void handleResumeLast()} disabled={isLoading}>
+              {t("chat_resume_last")}
+            </Button>
+          </div>
+        ) : null}
         <div className="flex items-center gap-2 flex-wrap px-0.5">
           <Switch id="quick-build-footer" checked={quickBuild} onCheckedChange={setQuickBuild} />
           <Label htmlFor="quick-build-footer" className="text-xs text-muted-foreground cursor-pointer">

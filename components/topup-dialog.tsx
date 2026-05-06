@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { useI18n } from "@/components/i18n-context"
 
 export function TopUpDialog({
   open,
@@ -19,15 +20,14 @@ export function TopUpDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const router = useRouter()
+  const { t } = useI18n()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Top up credits</DialogTitle>
-          <DialogDescription>
-            Your balance is too low to continue. Top up to resume.
-          </DialogDescription>
+          <DialogTitle>{t("topup_title")}</DialogTitle>
+          <DialogDescription>{t("topup_desc")}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button
@@ -38,7 +38,7 @@ export function TopUpDialog({
               router.push("/settings?tab=billing")
             }}
           >
-            Go to billing / top up
+            {t("topup_cta")}
           </Button>
         </DialogFooter>
       </DialogContent>

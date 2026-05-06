@@ -68,6 +68,8 @@ export interface PreviewPanelProps {
   polishing?: boolean
   /** Server repaired TSX (e.g. JSX `<=`); merge into editor + persistence. */
   onPreviewSourcesPatched?: (files: Record<string, string>) => void
+  /** Runtime QA result from iframe (ok/error). */
+  onRuntimeQa?: (args: { status: "ok" | "error"; message?: string; filesKey: string }) => void
   /** Optional pane control from host (e.g. expand/minimize preview pane). */
   onToggleExpand?: () => void
   previewExpanded?: boolean
@@ -88,6 +90,7 @@ export function PreviewPanel({
   onPolish,
   polishing,
   onPreviewSourcesPatched,
+  onRuntimeQa,
   onToggleExpand,
   previewExpanded,
   onPublish,
@@ -360,6 +363,7 @@ export function PreviewPanel({
             sandpackMountKey={sandpackMountKey}
             visibleFiles={visibleFiles}
             onPreviewSourcesPatched={onPreviewSourcesPatched}
+            onRuntimeQa={onRuntimeQa}
           />
         </div>
       </div>

@@ -108,6 +108,11 @@ export const zhHK = {
   chat_status_codegen_request_detail: "將指令交畀 Codegen。",
   chat_status_codegen_parse_title: "正在解析生成結果…",
   chat_status_codegen_parse_detail: "驗證輸出（App.tsx + 其他檔案）。",
+  chat_resume_last: "繼續上次生成",
+  chat_resume_last_desc: "唔會重新出計劃，直接由上次做到嘅位續跑。",
+  topup_title: "充值 credit",
+  topup_desc: "你嘅餘額不足以繼續。請先充值，然後返嚟按「繼續上次生成」。",
+  topup_cta: "去收費 / 充值",
 
   preview_title_empty: "預覽會喺度出現",
   preview_desc_empty:

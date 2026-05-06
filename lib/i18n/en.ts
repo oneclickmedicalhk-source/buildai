@@ -111,6 +111,11 @@ export const en = {
   chat_status_codegen_request_detail: "Sending instructions to the code generator.",
   chat_status_codegen_parse_title: "Parsing generated code…",
   chat_status_codegen_parse_detail: "Validating JSON output (App.tsx + extra files).",
+  chat_resume_last: "Resume last build",
+  chat_resume_last_desc: "Continue from where you left off without re-planning.",
+  topup_title: "Top up credits",
+  topup_desc: "Your balance is too low to continue. Top up, then come back and resume.",
+  topup_cta: "Go to billing / top up",
 
   preview_title_empty: "Preview will appear here",
   preview_desc_empty:
