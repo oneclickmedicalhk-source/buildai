@@ -71,7 +71,8 @@ function SearchParamEffects({
 export default function BuilderPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
-  const authRequired = useMemo(() => isBuildAiSupabaseBrowserConfigured(), [])
+  const [authRequired, setAuthRequired] = useState<boolean>(() => isBuildAiSupabaseBrowserConfigured())
+  const [authConfigKnown, setAuthConfigKnown] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [previewExpanded, setPreviewExpanded] = useState(false)
   const [hydrated, setHydrated] = useState(false)
@@ -89,6 +90,22 @@ export default function BuilderPage() {
   const [publishOpen, setPublishOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [polishing, setPolishing] = useState(false)
+
+  useEffect(() => {
+    // Avoid stale/inlined env checks: confirm config from server at runtime.
+    void (async () => {
+      try {
+        const res = await fetch("/api/diagnostics", { method: "GET", cache: "no-store" })
+        const data = (await res.json()) as { envConfigured?: { supabaseBrowser?: boolean } }
+        const required = Boolean(data?.envConfigured?.supabaseBrowser)
+        setAuthRequired(required)
+      } catch {
+        // Keep initial value; treat as unknown.
+      } finally {
+        setAuthConfigKnown(true)
+      }
+    })()
+  }, [])
 
   const handleApplyPreset = useCallback(
     (args: { presetId?: string | null; uiStyleKit?: string | null; themeId?: string | null; prompt?: string | null }) => {
@@ -479,12 +496,15 @@ export default function BuilderPage() {
 
   return (
     <div className="h-[100dvh] flex flex-col overflow-hidden">
-      {!authRequired ? (
+      {!authRequired && authConfigKnown ? (
         <div className="shrink-0 border-b border-amber-500/30 bg-amber-950/25 px-3 py-2 text-center text-[11px] sm:text-xs text-amber-200/95">
-          Demo mode: Supabase URL + anon key are not set in Vercel — you can browse the builder. Add env vars +
-          redeploy for Google sign-in, credits, and AI APIs.
+          Demo mode: Sign-in is not configured on this deployment (missing{" "}
+          <code className="text-amber-100">NEXT_PUBLIC_BUILDAI_SUPABASE_URL</code> /{" "}
+          <code className="text-amber-100">NEXT_PUBLIC_BUILDAI_SUPABASE_ANON_KEY</code>). You can browse the builder, but
+          AI Plan/Generate requires login.
         </div>
       ) : null}
+      {authRequired && !authLoading && !user ? null : null}
       <Suspense fallback={null}>
         <SearchParamEffects
           onOpenPublish={() => setPublishOpen(true)}
@@ -529,6 +549,7 @@ export default function BuilderPage() {
           projects={persisted.projects}
           activeProjectId={persisted.activeProjectId}
           integrations={persisted.integrations}
+          showLocalMode={!user}
           onNewProject={handleNewProject}
           onSelectProject={handleSelectProject}
           onRestoreVersion={handleRestoreVersion}

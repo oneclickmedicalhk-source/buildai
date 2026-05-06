@@ -47,6 +47,7 @@ export function ProjectSidebar({
   projects,
   activeProjectId,
   integrations,
+  showLocalMode = true,
   onNewProject,
   onSelectProject,
   onRestoreVersion,
@@ -57,6 +58,7 @@ export function ProjectSidebar({
   projects: BuilderProject[]
   activeProjectId: string | null
   integrations: BuilderIntegrations
+  showLocalMode?: boolean
   onNewProject: () => void
   onSelectProject: (id: string) => void
   onRestoreVersion: (projectId: string, versionId: string) => void
@@ -307,15 +309,17 @@ export function ProjectSidebar({
         </div>
       </ScrollArea>
 
-      <div className="p-3 border-t border-sidebar-border shrink-0 bg-sidebar">
-        <div className="flex items-center gap-2 px-2 py-2 rounded-lg bg-accent/10 min-w-0">
-          <Sparkles className="size-4 text-accent" />
-          <div className="flex-1">
-            <p className="text-xs font-medium">Local mode</p>
-            <p className="text-xs text-muted-foreground">Projects saved in this browser</p>
+      {showLocalMode ? (
+        <div className="p-3 border-t border-sidebar-border shrink-0 bg-sidebar">
+          <div className="flex items-center gap-2 px-2 py-2 rounded-lg bg-accent/10 min-w-0">
+            <Sparkles className="size-4 text-accent" />
+            <div className="flex-1">
+              <p className="text-xs font-medium">Local mode</p>
+              <p className="text-xs text-muted-foreground">Projects saved in this browser</p>
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
     </div>
   )
 }

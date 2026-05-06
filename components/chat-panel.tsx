@@ -281,6 +281,11 @@ export function ChatPanel({
   )
 
   const callPlan = async (history: Message[]) => {
+    if (!accessToken) {
+      toast.error(lang === "zh-HK" ? "請先登入先可以用 AI 功能。" : "Please sign in to use AI features.")
+      window.location.href = "/login"
+      throw new Error("Unauthorized")
+    }
     const apiMessages = history
       .filter((m) => !m.isGenerating && m.content)
       .map((m) => ({ role: m.role, content: m.content }))
@@ -288,7 +293,7 @@ export function ChatPanel({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({ messages: apiMessages, flags: apiFlags() }),
     })
@@ -317,6 +322,11 @@ export function ChatPanel({
       editOutput?: "auto" | "full" | "patch"
     },
   ) => {
+    if (!accessToken) {
+      toast.error(lang === "zh-HK" ? "請先登入先可以用 AI 功能。" : "Please sign in to use AI features.")
+      window.location.href = "/login"
+      throw new Error("Unauthorized")
+    }
     const apiMessages = history
       .filter((m) => !m.isGenerating && m.content)
       .map((m) => ({ role: m.role, content: m.content }))
@@ -324,7 +334,7 @@ export function ChatPanel({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
         messages: apiMessages,
