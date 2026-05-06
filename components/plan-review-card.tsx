@@ -117,7 +117,8 @@ export function PlanReviewCard({ plan, disabled, onConfirmBuild, onRevisePlan }:
     })
     setTouchedByQuestion((prev) => ({ ...prev, [q.id]: true }))
 
-    // Auto-advance if this question is now answered.
+    // Auto-advance ONLY for single-choice questions.
+    if (mode !== "single") return
     requestAnimationFrame(() => {
       if (!isAnswered(q)) return
       const nextIdx = Math.min(activeIdx + 1, questions.length - 1)
@@ -201,7 +202,8 @@ export function PlanReviewCard({ plan, disabled, onConfirmBuild, onRevisePlan }:
                   questionRefs.current[q.id] = el
                 }}
                 className={cn(
-                  "space-y-2 rounded-md bg-card/40 p-2 border border-border/40",
+                  // scroll-mt ensures the question header stays visible below sticky top bars
+                  "space-y-2 rounded-md bg-card/40 p-2 border border-border/40 scroll-mt-24",
                   !isActive && "opacity-60",
                 )}
               >
