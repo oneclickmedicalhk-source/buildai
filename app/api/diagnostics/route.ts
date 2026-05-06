@@ -17,6 +17,9 @@ export async function GET() {
     Boolean(process.env.GOOGLE_API_KEY?.trim()) ||
     Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim()) ||
     Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.trim())
+  const hasSupabaseMgmtOAuth =
+    Boolean(process.env.SUPABASE_OAUTH_CLIENT_ID?.trim()) &&
+    Boolean(process.env.SUPABASE_OAUTH_CLIENT_SECRET?.trim())
 
   return NextResponse.json({
     ok: true,
@@ -27,6 +30,7 @@ export async function GET() {
       supabaseServiceRole: hasSupabaseService,
       stripe: hasStripe,
       ai: hasAi,
+      supabaseManagementOAuth: hasSupabaseMgmtOAuth,
     },
   })
 }

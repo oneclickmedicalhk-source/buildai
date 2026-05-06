@@ -63,12 +63,55 @@ create table if not exists public.deployments (
 
 create index if not exists deployments_user_ts_idx on public.deployments(user_id, ts desc);
 
+-- Supabase BYO connections (user-level; reusable across BuildAI projects)
+create table if not exists public.supabase_connections (
+  id bigserial primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  project_ref text not null,
+  supabase_url text not null,
+  anon_key text not null,
+  region text,
+  label text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, project_ref)
+);
+
+create index if not exists supabase_connections_user_updated_idx on public.supabase_connections(user_id, updated_at desc);
+
+-- OAuth tokens for 3rd-party integrations (server-only; encrypted payload)
+create table if not exists public.oauth_tokens (
+  id bigserial primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  provider text not null, -- e.g. 'supabase'
+  token_encrypted text not null,
+  updated_at timestamptz not null default now(),
+  unique (user_id, provider)
+);
+
+create table if not exists public.oauth_states (
+  id bigserial primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  provider text not null,
+  state text not null,
+  code_verifier text not null,
+  redirect_uri text not null,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  unique (provider, state)
+);
+
+create index if not exists oauth_states_provider_expires_idx on public.oauth_states(provider, expires_at desc);
+
 -- RLS (read-only for user; server should write with service_role).
 alter table public.profiles enable row level security;
 alter table public.credits_ledger enable row level security;
 alter table public.usage_events enable row level security;
 alter table public.subscriptions enable row level security;
 alter table public.deployments enable row level security;
+alter table public.supabase_connections enable row level security;
+alter table public.oauth_tokens enable row level security;
+alter table public.oauth_states enable row level security;
 
 create policy "profiles_select_own" on public.profiles
   for select using (auth.uid() = user_id);
@@ -84,4 +127,9 @@ create policy "subscriptions_select_own" on public.subscriptions
 
 create policy "deployments_select_own" on public.deployments
   for select using (auth.uid() = user_id);
+
+create policy "supabase_connections_select_own" on public.supabase_connections
+  for select using (auth.uid() = user_id);
+
+-- oauth_tokens/oauth_states: no SELECT policy. Server uses service_role only.
 

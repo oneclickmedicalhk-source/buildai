@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useMemo, useState, useEffect } from "react"
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import type { BuilderIntegrations } from "@/lib/builder-types"
 import { ExternalLink } from "lucide-react"
+import { useAuth } from "@/components/auth-context"
+import { toast } from "sonner"
 
 export type IntegrationTab = "supabase" | "vercel" | "stripe"
 
@@ -32,11 +34,24 @@ export function IntegrationsDialog({
   integrations,
   onSave,
 }: IntegrationsDialogProps) {
+  const { accessToken } = useAuth()
   const [tab, setTab] = useState<IntegrationTab>(initialTab)
   const [supabaseUrl, setSupabaseUrl] = useState("")
   const [supabaseAnon, setSupabaseAnon] = useState("")
+  const [supabaseOauthConnected, setSupabaseOauthConnected] = useState(false)
+  const [supabaseConnections, setSupabaseConnections] = useState<Array<{ project_ref: string; supabase_url: string; label?: string | null; anon_key?: string }>>([])
+  const [creating, setCreating] = useState(false)
+  const [region, setRegion] = useState<string>("")
+  const [projectName, setProjectName] = useState<string>("")
   const [vercel, setVercel] = useState(false)
   const [stripe, setStripe] = useState(false)
+
+  const headers = useMemo(() => {
+    return {
+      "Content-Type": "application/json",
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    }
+  }, [accessToken])
 
   useEffect(() => {
     if (open) {
@@ -47,6 +62,61 @@ export function IntegrationsDialog({
       setStripe(integrations.stripeConnected)
     }
   }, [open, initialTab, integrations])
+
+  useEffect(() => {
+    if (!open) return
+    if (!accessToken) return
+    void (async () => {
+      try {
+        const res = await fetch("/api/integrations/supabase/status", { method: "GET", headers })
+        const data = (await res.json()) as { oauthConnected?: boolean; connections?: any[]; error?: string }
+        if (!res.ok) throw new Error(data.error ?? "Failed to load Supabase status")
+        setSupabaseOauthConnected(Boolean(data.oauthConnected))
+        setSupabaseConnections(Array.isArray(data.connections) ? data.connections : [])
+      } catch (e) {
+        // Non-fatal: keep manual paste mode.
+      }
+    })()
+  }, [open, accessToken, headers])
+
+  const startSupabaseOAuth = async () => {
+    if (!accessToken) {
+      toast.error("Please sign in first")
+      return
+    }
+    const res = await fetch("/api/oauth/supabase/start", { method: "POST", headers })
+    const data = (await res.json()) as { url?: string; error?: string }
+    if (!res.ok || !data.url) {
+      toast.error(data.error ?? "Supabase connect failed")
+      return
+    }
+    window.location.href = data.url
+  }
+
+  const provisionSupabase = async () => {
+    if (!accessToken) {
+      toast.error("Please sign in first")
+      return
+    }
+    setCreating(true)
+    try {
+      const res = await fetch("/api/integrations/supabase/provision", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          projectName: projectName.trim() || undefined,
+          region: region.trim() || undefined,
+        }),
+      })
+      const data = (await res.json()) as { connection?: { supabaseUrl: string; anonKey: string }; error?: string }
+      if (!res.ok || !data.connection) throw new Error(data.error ?? "Provision failed")
+      setSupabaseUrl(data.connection.supabaseUrl)
+      setSupabaseAnon(data.connection.anonKey)
+      toast.success("Supabase project created and connected")
+    } finally {
+      setCreating(false)
+    }
+  }
 
   const handleSave = () => {
     const supabase =
@@ -88,6 +158,76 @@ export function IntegrationsDialog({
 
         {tab === "supabase" && (
           <div className="space-y-4 py-2">
+            <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">1-click connect (recommended)</p>
+                  <p className="text-xs text-muted-foreground">
+                    Authorize Supabase once; BuildAI can create a free project and reuse it for multiple BuildAI projects.
+                  </p>
+                </div>
+                <Button type="button" size="sm" onClick={() => void startSupabaseOAuth()}>
+                  {supabaseOauthConnected ? "Re-connect" : "Connect"}
+                </Button>
+              </div>
+
+              {supabaseOauthConnected ? (
+                <div className="space-y-2 pt-1">
+                  {supabaseConnections.length ? (
+                    <div className="rounded-md border border-border bg-background/40 p-2">
+                      <p className="text-xs font-medium text-foreground mb-1">Use existing connection</p>
+                      <div className="flex flex-wrap gap-2">
+                        {supabaseConnections.slice(0, 3).map((c) => (
+                          <Button
+                            key={c.project_ref}
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSupabaseUrl(c.supabase_url)
+                              if (c.anon_key) setSupabaseAnon(c.anon_key)
+                              toast.success("Selected Supabase connection")
+                            }}
+                          >
+                            {c.label || c.project_ref}
+                          </Button>
+                        ))}
+                      </div>
+                      {supabaseConnections.length > 3 ? (
+                        <p className="text-[11px] text-muted-foreground mt-2">
+                          {supabaseConnections.length - 3} more connections available.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="sb-proj">Project name (optional)</Label>
+                      <Input id="sb-proj" value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="buildai-demo" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="sb-region">Region (optional)</Label>
+                      <Input id="sb-region" value={region} onChange={(e) => setRegion(e.target.value)} placeholder="(auto: closest to HK)" />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button type="button" size="sm" variant="secondary" onClick={() => void provisionSupabase()} disabled={creating}>
+                      {creating ? "Creating…" : "Create Supabase project"}
+                    </Button>
+                    {supabaseConnections.length ? (
+                      <span className="text-xs text-muted-foreground">
+                        Existing connections: {supabaseConnections.length} (new project is optional)
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  After connecting, you can auto-create a project (free plan) and we will fill the URL + anon key for you.
+                </p>
+              )}
+            </div>
+
             <ol className="list-decimal space-y-3 pl-4 text-sm text-muted-foreground">
               <li>
                 Open your project in the Supabase dashboard →{" "}
@@ -142,7 +282,7 @@ export function IntegrationsDialog({
                   API settings
                   <ExternalLink className="size-3 shrink-0 opacity-80" aria-hidden />
                 </a>
-                . OAuth connect is planned; see{" "}
+                . OAuth connect is supported via Supabase OAuth in this app; manual paste remains available. See{" "}
                 <code className="rounded bg-background/80 px-1 py-0.5 font-mono text-[10px]">
                   docs/integrations-oauth-roadmap.md
                 </code>{" "}
