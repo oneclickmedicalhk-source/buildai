@@ -19,11 +19,13 @@ import { useAiPreferences } from "@/components/ai-preferences-context"
 import { useI18n } from "@/components/i18n-context"
 import { useAuth } from "@/components/auth-context"
 import { Sparkles, ChevronDown, Settings, CreditCard, LogOut, User } from "lucide-react"
+import { useTheme } from "next-themes"
 
 export function Header() {
   const { aiProvider, setAiProvider } = useAiPreferences()
   const { lang, setLang, t } = useI18n()
   const { signOut } = useAuth()
+  const { theme, setTheme } = useTheme()
 
   return (
     <header className="h-14 border-b border-border flex items-center justify-between gap-2 px-3 sm:px-4 bg-background/80 backdrop-blur-sm sticky top-0 z-50 min-w-0">
@@ -51,6 +53,25 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div className="hidden sm:flex items-center gap-1.5">
+          <span className="text-xs text-muted-foreground whitespace-nowrap hidden lg:inline">
+            {lang === "zh-HK" ? "主題" : "Theme"}
+          </span>
+          <Select value={theme === "dark" ? "dark" : "light"} onValueChange={(v) => setTheme(v)}>
+            <SelectTrigger size="sm" className="h-8 w-[6.5rem] text-xs" aria-label="Theme">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent position="popper">
+              <SelectItem value="light" className="text-xs">
+                {lang === "zh-HK" ? "淺色" : "Light"}
+              </SelectItem>
+              <SelectItem value="dark" className="text-xs">
+                {lang === "zh-HK" ? "深色" : "Dark"}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="hidden sm:flex items-center gap-1.5">
           <span className="text-xs text-muted-foreground whitespace-nowrap hidden lg:inline">{t("header_language")}</span>
           <Select value={lang} onValueChange={(v) => setLang(v as typeof lang)}>

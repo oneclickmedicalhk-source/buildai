@@ -19,7 +19,7 @@ type Preset = {
   prompt: string
 }
 
-const PRESETS: Preset[] = [
+const PRESETS_EN: Preset[] = [
   {
     id: "pokemon_storefront",
     title: "Pokemon TCG storefront",
@@ -67,8 +67,57 @@ const PRESETS: Preset[] = [
   },
 ]
 
+const PRESETS_ZH_HK: Preset[] = [
+  {
+    id: "pokemon_storefront",
+    title: "Pokemon 卡牌網店",
+    description: "霓虹暗黑風格、產品格、稀有度標籤、購物車。",
+    uiStyleKit: "storefront",
+    themeId: "neon_dark",
+    prompt:
+      "整一個 Pokemon／卡牌網店：首頁、產品列表、產品頁、購物車。要有稀有度標籤同清晰卡片式產品格。",
+  },
+  {
+    id: "incense_storefront",
+    title: "香薰／精油小店",
+    description: "自然淺色、舒服字體、溫暖配色。",
+    uiStyleKit: "storefront",
+    themeId: "natural_light",
+    prompt:
+      "整一個香薰／精油小店：首頁、產品分類、產品列表、產品頁、購物車。風格要自然舒服。",
+  },
+  {
+    id: "storefront_admin",
+    title: "網店 + 後台（同一套資料）",
+    description: "同一個網站入面有網店同後台，資料互相同步。",
+    uiStyleKit: "storefront_admin",
+    themeId: "studio_dark",
+    prompt:
+      "整一個細型網店，另外要有後台可以管理產品同訂單（新增/編輯/刪除、列表）。網店同後台要用同一套資料，改完即時反映。",
+  },
+  {
+    id: "saas_marketing",
+    title: "產品／服務宣傳頁",
+    description: "Hero、功能介紹、收費、常見問題、聯絡。",
+    uiStyleKit: "saas_marketing",
+    themeId: "studio_dark",
+    prompt:
+      "整一個產品／服務宣傳頁：Hero（清晰賣點 + 按鈕）、功能介紹、客戶評價、收費表、常見問題、Footer 聯絡。",
+  },
+  {
+    id: "analytics_dashboard",
+    title: "營運數據 Dashboard",
+    description: "KPI 指標、篩選、列表、簡單圖表。",
+    uiStyleKit: "dashboard_analytics",
+    themeId: "studio_dark",
+    prompt:
+      "整一個營運數據 Dashboard：Sidebar、Top bar、4 個 KPI 指標、篩選、可排序資料表、簡單圖表、空狀態同載入狀態。",
+  },
+]
+
 export default function TemplatesPage() {
   const { lang, t } = useI18n()
+  const presets = lang === "zh-HK" ? PRESETS_ZH_HK : PRESETS_EN
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
@@ -91,7 +140,7 @@ export default function TemplatesPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {PRESETS.map((p) => (
+          {presets.map((p) => (
             <div key={p.title} className="rounded-2xl border border-border bg-card/30 p-6 flex flex-col">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -102,10 +151,10 @@ export default function TemplatesPage() {
               <div className="mt-4 text-xs text-muted-foreground">
                 <div className="flex flex-wrap gap-2">
                   <span className="rounded-md border border-border px-2 py-1">
-                    UI: <span className="text-foreground">{p.uiStyleKit}</span>
+                    {lang === "zh-HK" ? "介面：" : "UI:"} <span className="text-foreground">{p.uiStyleKit}</span>
                   </span>
                   <span className="rounded-md border border-border px-2 py-1">
-                    Theme: <span className="text-foreground">{p.themeId}</span>
+                    {lang === "zh-HK" ? "主題：" : "Theme:"} <span className="text-foreground">{p.themeId}</span>
                   </span>
                 </div>
               </div>

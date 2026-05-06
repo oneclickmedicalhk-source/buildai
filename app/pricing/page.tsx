@@ -27,10 +27,10 @@ export default function PricingPage() {
             </div>
             <ul className="mt-6 space-y-2 text-sm">
               {[
-                t("pricing_free_desc"),
-                "Local preview QA (bundle + runtime gates)",
-                "Projects + version history",
-                "Export ZIP",
+                t("pricing_free_feature_1"),
+                t("pricing_free_feature_2"),
+                t("pricing_free_feature_3"),
+                t("pricing_free_feature_4"),
               ].map((f) => (
                 <li key={f} className="flex gap-2">
                   <Check className="size-4 shrink-0 text-accent mt-0.5" />
@@ -46,7 +46,7 @@ export default function PricingPage() {
           <div className="rounded-2xl border border-accent bg-accent/5 shadow-lg p-6 flex flex-col">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-lg font-medium">{t("pricing_pro_name")}</h2>
-              <span className="text-xs rounded-full bg-accent/15 text-accent px-2 py-0.5">1.5× credits</span>
+              <span className="text-xs rounded-full bg-accent/15 text-accent px-2 py-0.5">{t("pricing_pro_badge")}</span>
             </div>
             <p className="mt-2 text-sm text-muted-foreground flex-1">{t("pricing_pro_desc")}</p>
             <div className="mt-4 flex items-baseline gap-1">
@@ -55,10 +55,10 @@ export default function PricingPage() {
             </div>
             <ul className="mt-6 space-y-2 text-sm">
               {[
-                "Monthly $15 credits",
-                "Same token-metered billing",
-                "Faster & higher limits (roadmap)",
-                "Best for daily usage",
+                t("pricing_pro_feature_1"),
+                t("pricing_pro_feature_2"),
+                t("pricing_pro_feature_3"),
+                t("pricing_pro_feature_4"),
               ].map((f) => (
                 <li key={f} className="flex gap-2">
                   <Check className="size-4 shrink-0 text-accent mt-0.5" />
@@ -79,10 +79,10 @@ export default function PricingPage() {
             </div>
             <ul className="mt-6 space-y-2 text-sm">
               {[
-                "Minimum $5 per purchase",
-                "No bonus credits",
-                "Top up anytime",
-                "Instantly available",
+                t("pricing_topup_feature_1"),
+                t("pricing_topup_feature_2"),
+                t("pricing_topup_feature_3"),
+                t("pricing_topup_feature_4"),
               ].map((f) => (
                 <li key={f} className="flex gap-2">
                   <Check className="size-4 shrink-0 text-accent mt-0.5" />

@@ -13,7 +13,15 @@ import { vertexGeminiGenerateJson } from "@/lib/vertex-gemini"
 import { callOpenAiJsonObject } from "@/lib/openai-codegen"
 import { parseModelJsonObject } from "@/lib/parse-model-json"
 import { requireBuildAiUserIdFromRequest } from "@/lib/auth/buildai-supabase-admin"
-import { getUserCreditBalanceUsd, insertCreditsLedgerEntry, insertUsageEvent, maybeGrantFreeMonthlyCredits } from "@/lib/service/credits"
+import {
+  applyFreeFirstBuildCap,
+  canUseFreeFirstBuildWaiver,
+  currentMonthKeyUtc,
+  getUserCreditBalanceUsd,
+  insertCreditsLedgerEntry,
+  insertUsageEvent,
+  maybeGrantFreeMonthlyCredits,
+} from "@/lib/service/credits"
 import { estimatePreauthChargeUsd, estimateUsageAndCharge } from "@/lib/service/usage-meter"
 
 function buildUserDelimitedContent(content: string): string {
@@ -49,10 +57,13 @@ export async function POST(req: Request) {
     const preauth = estimatePreauthChargeUsd({
       aiProviderChoice: body.flags?.aiProvider,
       inputText: `${systemJsonHint}\n\n${lastUser}`,
-      assumedOutputTokens: 1800,
+      assumedOutputTokens: 1000,
       markupMin: 5,
     })
-    if (bal.balanceUsd < preauth) {
+    // Don’t block too aggressively: pre-auth is just a safety check.
+    const minRequired = 1
+    const firstBuild = await canUseFreeFirstBuildWaiver(userId)
+    if (bal.balanceUsd < Math.min(preauth, minRequired) && !firstBuild) {
       return NextResponse.json(
         { error: "Insufficient credits", code: "INSUFFICIENT_CREDITS", neededUsd: preauth, balanceUsd: bal.balanceUsd },
         { status: 402 },
@@ -158,11 +169,16 @@ export async function POST(req: Request) {
       chargedUsd: usage.chargedUsd,
       meta: { kind: "plan" },
     })
+    const capped = firstBuild
+      ? await applyFreeFirstBuildCap({ userId, phase: "plan", chargedUsd: usage.chargedUsd, capUsd: 3 })
+      : { finalChargedUsd: usage.chargedUsd, discountUsd: 0 }
     await insertCreditsLedgerEntry({
       userId,
       kind: "usage_charge",
-      amountUsd: -usage.chargedUsd,
-      meta: { kind: "plan", provider: usage.provider, model: usage.model },
+      amountUsd: -capped.finalChargedUsd,
+      meta: firstBuild
+        ? { kind: "first_build", month: currentMonthKeyUtc(), phase: "plan", provider: usage.provider, model: usage.model }
+        : { kind: "plan", provider: usage.provider, model: usage.model },
     })
 
     return NextResponse.json(normalized)

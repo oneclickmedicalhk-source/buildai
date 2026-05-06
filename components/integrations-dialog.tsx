@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label"
 import type { BuilderIntegrations } from "@/lib/builder-types"
 import { ExternalLink } from "lucide-react"
 import { useAuth } from "@/components/auth-context"
+import { useI18n } from "@/components/i18n-context"
 import { toast } from "sonner"
 
 export type IntegrationTab = "supabase" | "vercel" | "stripe"
@@ -35,6 +36,7 @@ export function IntegrationsDialog({
   onSave,
 }: IntegrationsDialogProps) {
   const { accessToken } = useAuth()
+  const { lang } = useI18n()
   const [tab, setTab] = useState<IntegrationTab>(initialTab)
   const [supabaseUrl, setSupabaseUrl] = useState("")
   const [supabaseAnon, setSupabaseAnon] = useState("")
@@ -81,13 +83,13 @@ export function IntegrationsDialog({
 
   const startSupabaseOAuth = async () => {
     if (!accessToken) {
-      toast.error("Please sign in first")
+      toast.error(lang === "zh-HK" ? "請先登入" : "Please sign in first")
       return
     }
     const res = await fetch("/api/oauth/supabase/start", { method: "POST", headers })
     const data = (await res.json()) as { url?: string; error?: string }
     if (!res.ok || !data.url) {
-      toast.error(data.error ?? "Supabase connect failed")
+      toast.error(data.error ?? (lang === "zh-HK" ? "Supabase 連接失敗" : "Supabase connect failed"))
       return
     }
     window.location.href = data.url
@@ -95,7 +97,7 @@ export function IntegrationsDialog({
 
   const provisionSupabase = async () => {
     if (!accessToken) {
-      toast.error("Please sign in first")
+      toast.error(lang === "zh-HK" ? "請先登入" : "Please sign in first")
       return
     }
     setCreating(true)
@@ -112,7 +114,7 @@ export function IntegrationsDialog({
       if (!res.ok || !data.connection) throw new Error(data.error ?? "Provision failed")
       setSupabaseUrl(data.connection.supabaseUrl)
       setSupabaseAnon(data.connection.anonKey)
-      toast.success("Supabase project created and connected")
+      toast.success(lang === "zh-HK" ? "已建立並連接 Supabase project" : "Supabase project created and connected")
     } finally {
       setCreating(false)
     }
@@ -135,9 +137,11 @@ export function IntegrationsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Integrations</DialogTitle>
+          <DialogTitle>{lang === "zh-HK" ? "整合" : "Integrations"}</DialogTitle>
           <DialogDescription>
-            Connect services for your generated previews. Keys stay in your browser unless you deploy elsewhere.
+            {lang === "zh-HK"
+              ? "連接外部服務（例如 Supabase）。未發佈之前，連線資料只會留喺你部瀏覽器。"
+              : "Connect services like Supabase. Before you publish, connection info stays in your browser."}
           </DialogDescription>
         </DialogHeader>
 
@@ -161,13 +165,17 @@ export function IntegrationsDialog({
             <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-medium text-foreground">1-click connect (recommended)</p>
+                  <p className="text-sm font-medium text-foreground">
+                    {lang === "zh-HK" ? "一鍵連接（建議）" : "1-click connect (recommended)"}
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    Authorize Supabase once; BuildAI can create a free project and reuse it for multiple BuildAI projects.
+                    {lang === "zh-HK"
+                      ? "授權一次後，BuildAI 可以幫你建立免費 Supabase project，亦可以重用喺多個 BuildAI 專案。"
+                      : "Authorize once; BuildAI can create a free Supabase project and reuse it across BuildAI projects."}
                   </p>
                 </div>
                 <Button type="button" size="sm" onClick={() => void startSupabaseOAuth()}>
-                  {supabaseOauthConnected ? "Re-connect" : "Connect"}
+                  {supabaseOauthConnected ? (lang === "zh-HK" ? "重新連接" : "Re-connect") : lang === "zh-HK" ? "連接" : "Connect"}
                 </Button>
               </div>
 
@@ -186,7 +194,7 @@ export function IntegrationsDialog({
                             onClick={() => {
                               setSupabaseUrl(c.supabase_url)
                               if (c.anon_key) setSupabaseAnon(c.anon_key)
-                              toast.success("Selected Supabase connection")
+                              toast.success(lang === "zh-HK" ? "已選取 Supabase 連線" : "Selected Supabase connection")
                             }}
                           >
                             {c.label || c.project_ref}
@@ -195,35 +203,41 @@ export function IntegrationsDialog({
                       </div>
                       {supabaseConnections.length > 3 ? (
                         <p className="text-[11px] text-muted-foreground mt-2">
-                          {supabaseConnections.length - 3} more connections available.
+                          {lang === "zh-HK"
+                            ? `仲有 ${supabaseConnections.length - 3} 個連線`
+                            : `${supabaseConnections.length - 3} more connections available.`}
                         </p>
                       ) : null}
                     </div>
                   ) : null}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div className="space-y-1">
-                      <Label htmlFor="sb-proj">Project name (optional)</Label>
+                      <Label htmlFor="sb-proj">{lang === "zh-HK" ? "Project 名稱（可選）" : "Project name (optional)"}</Label>
                       <Input id="sb-proj" value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="buildai-demo" />
                     </div>
                     <div className="space-y-1">
-                      <Label htmlFor="sb-region">Region (optional)</Label>
+                      <Label htmlFor="sb-region">{lang === "zh-HK" ? "地區（可選）" : "Region (optional)"}</Label>
                       <Input id="sb-region" value={region} onChange={(e) => setRegion(e.target.value)} placeholder="(auto: closest to HK)" />
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <Button type="button" size="sm" variant="secondary" onClick={() => void provisionSupabase()} disabled={creating}>
-                      {creating ? "Creating…" : "Create Supabase project"}
+                      {creating ? (lang === "zh-HK" ? "建立中…" : "Creating…") : lang === "zh-HK" ? "建立 Supabase project" : "Create Supabase project"}
                     </Button>
                     {supabaseConnections.length ? (
                       <span className="text-xs text-muted-foreground">
-                        Existing connections: {supabaseConnections.length} (new project is optional)
+                        {lang === "zh-HK"
+                          ? `已有連線：${supabaseConnections.length}（唔一定要新建）`
+                          : `Existing connections: ${supabaseConnections.length} (new project is optional)`}
                       </span>
                     ) : null}
                   </div>
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  After connecting, you can auto-create a project (free plan) and we will fill the URL + anon key for you.
+                  {lang === "zh-HK"
+                    ? "連接後，你可以一鍵建立 project（免費方案），我哋會自動填好 URL + anon key。"
+                    : "After connecting, you can auto-create a project (free plan) and we will fill the URL + anon key for you."}
                 </p>
               )}
             </div>

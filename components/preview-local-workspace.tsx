@@ -101,7 +101,7 @@ export interface PreviewLocalWorkspaceProps {
 
 /**
  * Builds preview HTML on the server (esbuild + Tailwind) and shows it in an iframe.
- * No CodeSandbox bundler or Tailwind CDN — works on restricted networks.
+ * This avoids external build services and works on restricted networks.
  */
 export function PreviewLocalWorkspace({
   viewMode,
@@ -248,7 +248,7 @@ export function PreviewLocalWorkspace({
         {loading ? (
           <div className="flex items-center gap-2 text-foreground">
             <Loader2 className="size-3.5 animate-spin shrink-0" />
-            <span>Building preview on this server (no CodeSandbox / no Tailwind CDN)…</span>
+            <span>Preparing your preview…</span>
           </div>
         ) : error ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -264,7 +264,7 @@ export function PreviewLocalWorkspace({
         ) : runtimeStatus === "pending" ? (
           <div className="flex items-center gap-2 text-foreground">
             <Loader2 className="size-3.5 animate-spin shrink-0" />
-            <span>Starting app runtime checks…</span>
+            <span>Checking if everything runs…</span>
           </div>
         ) : runtimeStatus === "error" ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -278,7 +278,7 @@ export function PreviewLocalWorkspace({
             </Button>
           </div>
         ) : (
-          <div className="text-emerald-600 dark:text-emerald-400">Preview ready (bundled locally).</div>
+          <div className="text-emerald-600 dark:text-emerald-400">Preview ready.</div>
         )}
       </div>
 

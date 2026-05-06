@@ -20,7 +20,15 @@ import { callOpenAiJsonObject } from "@/lib/openai-codegen"
 import { parseModelJsonObject } from "@/lib/parse-model-json"
 import { applyUnifiedDiffToVirtualFiles } from "@/lib/patch/apply-unified-diff"
 import { requireBuildAiUserIdFromRequest } from "@/lib/auth/buildai-supabase-admin"
-import { getUserCreditBalanceUsd, insertCreditsLedgerEntry, insertUsageEvent, maybeGrantFreeMonthlyCredits } from "@/lib/service/credits"
+import {
+  applyFreeFirstBuildCap,
+  canUseFreeFirstBuildWaiver,
+  currentMonthKeyUtc,
+  getUserCreditBalanceUsd,
+  insertCreditsLedgerEntry,
+  insertUsageEvent,
+  maybeGrantFreeMonthlyCredits,
+} from "@/lib/service/credits"
 import { estimatePreauthChargeUsd, estimateUsageAndCharge } from "@/lib/service/usage-meter"
 
 const modelOutputSchema = z.object({
@@ -105,10 +113,13 @@ export async function POST(req: Request) {
     const preauth = estimatePreauthChargeUsd({
       aiProviderChoice: body.flags?.aiProvider,
       inputText: `${lastUser}`,
-      assumedOutputTokens: 5000,
+      assumedOutputTokens: 2200,
       markupMin: 5,
     })
-    if (bal.balanceUsd < preauth) {
+    // Don’t block too aggressively: pre-auth is just a safety check.
+    const minRequired = 1
+    const firstBuild = await canUseFreeFirstBuildWaiver(userId)
+    if (bal.balanceUsd < Math.min(preauth, minRequired) && !firstBuild) {
       return NextResponse.json(
         { error: "Insufficient credits", code: "INSUFFICIENT_CREDITS", neededUsd: preauth, balanceUsd: bal.balanceUsd },
         { status: 402 },
@@ -270,11 +281,16 @@ export async function POST(req: Request) {
         chargedUsd: usage.chargedUsd,
         meta: { kind: "generate", patchMode: true },
       })
+      const capped = firstBuild
+        ? await applyFreeFirstBuildCap({ userId, phase: "generate", chargedUsd: usage.chargedUsd, capUsd: 3 })
+        : { finalChargedUsd: usage.chargedUsd, discountUsd: 0 }
       await insertCreditsLedgerEntry({
         userId,
         kind: "usage_charge",
-        amountUsd: -usage.chargedUsd,
-        meta: { kind: "generate", provider: usage.provider, model: usage.model },
+        amountUsd: -capped.finalChargedUsd,
+        meta: firstBuild
+          ? { kind: "first_build", month: currentMonthKeyUtc(), phase: "generate", provider: usage.provider, model: usage.model }
+          : { kind: "generate", provider: usage.provider, model: usage.model },
       })
 
       return NextResponse.json(normalized)
@@ -306,11 +322,16 @@ export async function POST(req: Request) {
       chargedUsd: usage.chargedUsd,
       meta: { kind: "generate", patchMode: false },
     })
+    const capped = firstBuild
+      ? await applyFreeFirstBuildCap({ userId, phase: "generate", chargedUsd: usage.chargedUsd, capUsd: 3 })
+      : { finalChargedUsd: usage.chargedUsd, discountUsd: 0 }
     await insertCreditsLedgerEntry({
       userId,
       kind: "usage_charge",
-      amountUsd: -usage.chargedUsd,
-      meta: { kind: "generate", provider: usage.provider, model: usage.model },
+      amountUsd: -capped.finalChargedUsd,
+      meta: firstBuild
+        ? { kind: "first_build", month: currentMonthKeyUtc(), phase: "generate", provider: usage.provider, model: usage.model }
+        : { kind: "generate", provider: usage.provider, model: usage.model },
     })
 
     return NextResponse.json(normalized)

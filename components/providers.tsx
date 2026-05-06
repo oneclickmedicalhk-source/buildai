@@ -14,7 +14,7 @@ export function Providers({
   buildAiSupabaseEnv: { url: string; anonKey: string } | null
 }) {
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+    <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
       <I18nProvider>
         <AuthProvider buildAiSupabaseEnv={buildAiSupabaseEnv}>
           <AiPreferencesProvider>{children}</AiPreferencesProvider>

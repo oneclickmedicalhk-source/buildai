@@ -97,6 +97,13 @@ function GeneratingStatus({
   label?: "planning" | "building"
   stage?: Message["generatingStage"]
 }) {
+  const percentByStage: Partial<Record<NonNullable<Message["generatingStage"]>, number>> = {
+    planning_request: 10,
+    planning_parse: 35,
+    waiting_confirm: 50,
+    codegen_request: 70,
+    codegen_parse: 90,
+  }
   const lines: Record<
     NonNullable<Message["generatingStage"]>,
     { title: string; detail?: string }
@@ -114,12 +121,14 @@ function GeneratingStatus({
       : { title: "Generating…", detail: "Building updated source files." }
 
   const cur = stage ? lines[stage] : fallback
+  const pct = stage ? percentByStage[stage] : undefined
+  const title = pct != null ? `${cur.title} (${pct}%)` : cur.title
 
   return (
     <div className="space-y-1 text-sm">
       <p className="flex items-center gap-2">
         <Loader2 className="size-4 animate-spin shrink-0" />
-        {cur.title}
+        {title}
       </p>
       {cur.detail ? <p className="text-xs text-muted-foreground pl-6">{cur.detail}</p> : null}
     </div>
@@ -127,17 +136,21 @@ function GeneratingStatus({
 }
 
 const SUGGESTIONS = [
-  "Build a B2B SaaS marketing site: hero with value prop + primary CTA, social proof logos, 3 feature cards with icons, pricing table (3 tiers), FAQ accordion, footer with links. Dark theme, emerald accents, fully responsive (mobile nav), accessible focus states, demo images on-theme.",
-  "Create an operations dashboard SPA: sidebar nav + top bar (search, user menu), KPI row (4 metrics), filters, primary data table with sortable columns and row actions, empty + loading skeleton states, secondary chart panel. Dense desktop grid (lg: more columns), readable mobile stack.",
-  "Design auth + onboarding: split layout sign-in (email/password + OAuth placeholders), forgot-password link, terms checkbox, inline validation messages; post-login onboarding wizard (3 steps with progress). WCAG-friendly labels, keyboard-friendly, responsive.",
-  "Build a collectible trading-card ecommerce storefront: home (hero + featured categories), catalog grid (cards with image, title, price, rarity badge), product detail with gallery + specs + add-to-cart, cart drawer with line items + totals, about + contact views. Theme-relevant Unsplash images per product row.",
+  "Make a simple website for my business (home, services, contact, WhatsApp button).",
+  "Create a landing page for my new product (features, pricing, FAQ, contact).",
+  "Build a page for booking appointments (choose service, pick time, confirmation).",
+  "Make a restaurant website (menu, opening hours, location map, contact).",
+  "Create an event page (schedule, speakers, ticket button, location).",
+  "Build a small online store (product list, product page, cart).",
 ]
 
 const SUGGESTIONS_ZH_HK = [
-  "整一個 B2B SaaS 行銷網站：Hero（清晰價值主張 + 主 CTA）、社會證明 logo、3–6 張功能卡（有 icon）、收費表（3 個方案）、FAQ 摺疊、Footer 連結。現代化設計、響應式（手機版 menu）、可及性 focus state、示範圖片要貼題。",
-  "整一個營運數據 Dashboard SPA：Sidebar + Top bar（搜尋、用戶選單）、KPI（4 個指標）、Filters、主要資料表（可排序 + row actions）、空狀態 + skeleton loading、次要 chart panel。桌面密度高（lg: 多欄），手機版清晰堆疊。",
-  "設計登入 + Onboarding：分欄登入（Email/Password + OAuth placeholder）、忘記密碼、同意條款 checkbox、inline validation；登入後 3 步 onboarding wizard（有進度）。鍵盤操作友善、WCAG labels、響應式。",
-  "整一個收藏卡／集換式卡牌網店：首頁（Hero + 精選分類）、Catalog 格（卡片有圖片/名稱/價錢/稀有度 badge）、產品頁（gallery + 資料 + 加入購物車）、購物車（line items + 數量 + totals + 空車狀態）、關於/聯絡。示範圖片同內容要貼題。",
+  "整一個簡單公司網站（首頁、服務、聯絡、WhatsApp 按鈕）。",
+  "整一個產品介紹頁（功能、價錢、常見問題、聯絡）。",
+  "整一個預約頁（揀服務、揀時間、確認訊息）。",
+  "整一個餐廳網站（餐牌、營業時間、地圖、聯絡）。",
+  "整一個活動宣傳頁（流程、講者、購票按鈕、地點）。",
+  "整一個簡單網店（產品列表、產品頁、購物車）。",
 ]
 
 export interface ChatGenerateSuccess {
@@ -711,7 +724,7 @@ export function ChatPanel({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <TopUpDialog open={topupOpen} onOpenChange={setTopupOpen} onTopUp={() => setTopupOpen(false)} />
+      <TopUpDialog open={topupOpen} onOpenChange={setTopupOpen} />
       <ScrollArea ref={scrollRef} className="flex-1 min-h-0 p-4">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center px-4 min-h-[240px]">
@@ -987,7 +1000,7 @@ export function ChatPanel({
           </div>
         </div>
         <p className="text-xs text-muted-foreground text-center">
-          BuildAI uses an AI API from the server. Review the plan and output before deploying.
+          Please review the plan and preview before publishing.
         </p>
       </div>
     </div>

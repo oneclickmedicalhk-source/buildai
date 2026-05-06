@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button"
 import { useAuth } from "@/components/auth-context"
 import { useI18n } from "@/components/i18n-context"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 
 type BalanceResp = { balanceUsd: number }
@@ -45,6 +47,8 @@ export default function SettingsPage() {
   const [usage, setUsage] = useState<UsageRow[]>([])
   const [sub, setSub] = useState<SubResp | null>(null)
   const [loading, setLoading] = useState(false)
+  const [promoCode, setPromoCode] = useState("")
+  const [redeeming, setRedeeming] = useState(false)
 
   const headers = useMemo(
     () => ({
@@ -91,6 +95,29 @@ export default function SettingsPage() {
     const data = (await res.json()) as { url?: string; error?: string }
     if (!res.ok || !data.url) throw new Error(data.error ?? "Checkout failed")
     window.location.href = data.url
+  }
+
+  const redeemPromo = async () => {
+    if (!accessToken) return
+    if (!promoCode.trim()) return
+    setRedeeming(true)
+    try {
+      const res = await fetch("/api/billing/redeem", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ code: promoCode.trim() }),
+      })
+      const data = (await res.json()) as { ok?: boolean; balanceUsd?: number; error?: string }
+      if (!res.ok) throw new Error(data.error ?? "Redeem failed")
+      if (typeof data.balanceUsd === "number") setBalance(data.balanceUsd)
+      toast.success(lang === "zh-HK" ? "兌換成功" : "Redeemed")
+      setPromoCode("")
+      void refresh()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Redeem failed")
+    } finally {
+      setRedeeming(false)
+    }
   }
 
   return (
@@ -150,7 +177,7 @@ export default function SettingsPage() {
           </TabsList>
 
           <TabsContent value="billing" className="mt-4">
-            <div className="rounded-2xl border border-border bg-card/30 p-6 space-y-3">
+            <div className="rounded-2xl border border-border bg-card/30 p-6 space-y-6">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
                   <div className="text-sm font-medium">{lang === "zh-HK" ? "目前方案" : "Current plan"}</div>
@@ -167,8 +194,33 @@ export default function SettingsPage() {
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {lang === "zh-HK"
-                    ? "Free：每月 $5；Pro：$10/月送 $15（1.5×）"
-                    : "Free: $5/mo credits. Pro: $10/mo with $15 credits (1.5×)."}
+                    ? "Free：每月 $10；Pro：$10/月送 $15（1.5×）"
+                    : "Free: $10/mo credits. Pro: $10/mo with $15 credits (1.5×)."}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-background/40 p-4">
+                <div className="text-sm font-medium">{lang === "zh-HK" ? "優惠碼" : "Promo code"}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {lang === "zh-HK"
+                    ? "輸入優惠碼即可加 credit（每個帳戶通常只可用一次）。"
+                    : "Enter a promo code to add credits (usually once per account)."}
+                </p>
+                <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                  <div className="flex-1">
+                    <Label htmlFor="promo" className="sr-only">
+                      Promo code
+                    </Label>
+                    <Input
+                      id="promo"
+                      value={promoCode}
+                      onChange={(e) => setPromoCode(e.target.value)}
+                      placeholder={lang === "zh-HK" ? "例如：FREE10" : "e.g. FREE10"}
+                    />
+                  </div>
+                  <Button type="button" onClick={() => void redeemPromo()} disabled={redeeming || !promoCode.trim()}>
+                    {redeeming ? (lang === "zh-HK" ? "兌換中…" : "Redeeming…") : lang === "zh-HK" ? "兌換" : "Redeem"}
+                  </Button>
                 </div>
               </div>
             </div>
