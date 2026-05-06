@@ -2,7 +2,11 @@ import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { Providers } from "@/components/providers"
+import { readBuildAiSupabasePublicEnv } from "@/lib/auth/buildai-supabase-browser"
 import "./globals.css"
+
+/** Always read Supabase public env at request time (matches `/api/diagnostics`). */
+export const dynamic = "force-dynamic"
 
 const _geist = Geist({ subsets: ["latin"] })
 const _geistMono = Geist_Mono({ subsets: ["latin"] })
@@ -77,6 +81,8 @@ export default function RootLayout({
     },
   }
 
+  const buildAiSupabaseEnv = readBuildAiSupabasePublicEnv()
+
   return (
     <html lang="en" className="dark bg-background" suppressHydrationWarning>
       <body className="font-sans antialiased bg-background text-foreground">
@@ -90,7 +96,7 @@ export default function RootLayout({
           // eslint-disable-next-line react/no-danger
           dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
         />
-        <Providers>
+        <Providers buildAiSupabaseEnv={buildAiSupabaseEnv}>
           {children}
           {process.env.NODE_ENV === "production" && <Analytics />}
         </Providers>

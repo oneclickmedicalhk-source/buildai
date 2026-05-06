@@ -31,7 +31,6 @@ import type { ChatGenerateSuccess } from "@/components/chat-panel"
 import type { GenerateResponse } from "@/lib/ai-generate-schema"
 import { toast } from "sonner"
 import { useAuth } from "@/components/auth-context"
-import { isBuildAiSupabaseBrowserConfigured } from "@/lib/auth/buildai-supabase-browser"
 
 function SearchParamEffects({
   onOpenPublish,
@@ -70,8 +69,8 @@ function SearchParamEffects({
 
 export default function BuilderPage() {
   const router = useRouter()
-  const { user, loading: authLoading } = useAuth()
-  const [authRequired, setAuthRequired] = useState<boolean>(() => isBuildAiSupabaseBrowserConfigured())
+  const { user, loading: authLoading, authConfigured } = useAuth()
+  const [authRequired, setAuthRequired] = useState<boolean>(authConfigured)
   const [authConfigKnown, setAuthConfigKnown] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [previewExpanded, setPreviewExpanded] = useState(false)

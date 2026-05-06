@@ -20,6 +20,11 @@ export async function GET() {
   const hasSupabaseMgmtOAuth =
     Boolean(process.env.SUPABASE_OAUTH_CLIENT_ID?.trim()) &&
     Boolean(process.env.SUPABASE_OAUTH_CLIENT_SECRET?.trim())
+  const hasGithubPublishOAuth =
+    Boolean(process.env.GITHUB_CLIENT_ID?.trim()) && Boolean(process.env.GITHUB_CLIENT_SECRET?.trim())
+  const hasVercelPublishOAuth =
+    Boolean(process.env.VERCEL_CLIENT_ID?.trim()) && Boolean(process.env.VERCEL_CLIENT_SECRET?.trim())
+  const hasPublishCookieSecret = Boolean(process.env.PUBLISH_COOKIE_SECRET?.trim())
 
   return NextResponse.json({
     ok: true,
@@ -31,6 +36,12 @@ export async function GET() {
       stripe: hasStripe,
       ai: hasAi,
       supabaseManagementOAuth: hasSupabaseMgmtOAuth,
+      /** Publish → GitHub OAuth (`/api/oauth/github/*`) */
+      githubPublishOAuth: hasGithubPublishOAuth,
+      /** Publish → Vercel OAuth (`/api/oauth/vercel/*`) */
+      vercelPublishOAuth: hasVercelPublishOAuth,
+      /** Encrypt GitHub/Vercel tokens in cookies — required after OAuth callback */
+      publishCookieSecret: hasPublishCookieSecret,
     },
   })
 }

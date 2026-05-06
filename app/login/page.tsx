@@ -1,22 +1,16 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
-import {
-  getBuildAiSupabaseBrowser,
-  isBuildAiSupabaseBrowserConfigured,
-} from "@/lib/auth/buildai-supabase-browser"
 import { useAuth } from "@/components/auth-context"
 import { useI18n } from "@/components/i18n-context"
 import { toast } from "sonner"
 
 export default function LoginPage() {
   const router = useRouter()
-  const supabaseConfigured = useMemo(() => isBuildAiSupabaseBrowserConfigured(), [])
-  const supabase = useMemo(() => (supabaseConfigured ? getBuildAiSupabaseBrowser() : null), [supabaseConfigured])
-  const { user, loading } = useAuth()
+  const { user, loading, authConfigured, authEnvReady, supabase } = useAuth()
   const { t } = useI18n()
   const [busy, setBusy] = useState(false)
 
@@ -26,7 +20,8 @@ export default function LoginPage() {
   }
 
   const handleGoogle = async () => {
-    if (!supabase) {
+    if (!authEnvReady) return
+    if (!authConfigured) {
       toast.error("Sign-in is not configured. Add Supabase URL + anon key in Vercel (see .env.example).")
       return
     }
@@ -54,7 +49,11 @@ export default function LoginPage() {
           <p className="text-sm text-muted-foreground mt-2">
             {t("login_desc")}
           </p>
-          <Button className="mt-6 w-full" onClick={() => void handleGoogle()} disabled={busy}>
+          <Button
+            className="mt-6 w-full"
+            onClick={() => void handleGoogle()}
+            disabled={busy || !authEnvReady}
+          >
             {t("login_google")}
           </Button>
         </div>

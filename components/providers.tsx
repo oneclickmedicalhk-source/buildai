@@ -6,11 +6,17 @@ import { I18nProvider } from "@/components/i18n-context"
 import { AuthProvider } from "@/components/auth-context"
 import { Toaster } from "@/components/ui/sonner"
 
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({
+  children,
+  buildAiSupabaseEnv,
+}: {
+  children: React.ReactNode
+  buildAiSupabaseEnv: { url: string; anonKey: string } | null
+}) {
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
       <I18nProvider>
-        <AuthProvider>
+        <AuthProvider buildAiSupabaseEnv={buildAiSupabaseEnv}>
           <AiPreferencesProvider>{children}</AiPreferencesProvider>
         </AuthProvider>
       </I18nProvider>
