@@ -41,6 +41,9 @@ export async function POST(req: Request) {
 
     const lastUser = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? ""
 
+    const systemJsonHint =
+      "Return **only** one JSON object with keys reply and plan. No markdown fences, no text before or after the JSON. Do not include appTsx or code."
+
     // Pre-auth: block if balance is clearly insufficient (conservative estimate).
     const bal = await getUserCreditBalanceUsd(userId)
     const preauth = estimatePreauthChargeUsd({
@@ -73,8 +76,6 @@ export async function POST(req: Request) {
       ...(uiStyleKit ? { uiStyleKit } : {}),
     })
     const baseSystemWithTheme = `${baseSystem}\n\nTheme hint (use in visualThemeKeywords + designNotes): ${themeHint}\nBrand mood hint (reflect in designNotes + demo copy tone): ${brandMood}`
-    const systemJsonHint =
-      "Return **only** one JSON object with keys reply and plan. No markdown fences, no text before or after the JSON. Do not include appTsx or code."
 
     const system =
       provider === "vertex_claude" || provider === "vertex_gemini"

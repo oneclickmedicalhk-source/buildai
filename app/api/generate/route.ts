@@ -95,6 +95,11 @@ export async function POST(req: Request) {
     const outboundMessages = buildOutboundMessages(body)
     const lastUser = [...outboundMessages].reverse().find((m) => m.role === "user")?.content ?? ""
 
+    const patchMode =
+      body.refineFrom != null &&
+      (body.refineKind ?? "polish") === "edit" &&
+      (body.editOutput ?? "auto") === "patch"
+
     // Pre-auth: conservative estimate. Generate is more expensive than plan.
     const bal = await getUserCreditBalanceUsd(userId)
     const preauth = estimatePreauthChargeUsd({
@@ -136,10 +141,6 @@ export async function POST(req: Request) {
       ...(uiStyleKit ? { uiStyleKit } : {}),
       ...(themeTokens ? { themeTokens } : {}),
     })
-    const patchMode =
-      body.refineFrom != null &&
-      (body.refineKind ?? "polish") === "edit" &&
-      (body.editOutput ?? "auto") === "patch"
 
     const systemJsonHint = patchMode
       ? [
