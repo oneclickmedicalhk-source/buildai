@@ -25,10 +25,8 @@ import {
   Eye,
   Download,
   ExternalLink,
-  RefreshCw,
   Sparkles,
   Loader2,
-  Wand2,
   Maximize2,
   Minimize2,
   Rocket,
@@ -61,11 +59,6 @@ export interface PreviewPanelProps {
   /** Remount preview iframe when the saved version changes. */
   sandpackMountKey?: string | null
   sandpackFiles: SandpackFiles
-  onRefresh?: () => void
-  refreshing?: boolean
-  /** Phase D: layout polish pass (second model call with existing code). */
-  onPolish?: () => void
-  polishing?: boolean
   /** Server repaired TSX (e.g. JSX `<=`); merge into editor + persistence. */
   onPreviewSourcesPatched?: (files: Record<string, string>) => void
   /** Runtime QA result from iframe (ok/error). */
@@ -85,10 +78,6 @@ export function PreviewPanel({
   versionPicker,
   sandpackMountKey,
   sandpackFiles,
-  onRefresh,
-  refreshing,
-  onPolish,
-  polishing,
   onPreviewSourcesPatched,
   onRuntimeQa,
   onToggleExpand,
@@ -298,36 +287,6 @@ export function PreviewPanel({
                   <TooltipContent side="bottom">{previewExpanded ? "Minimize preview pane" : "Expand preview pane"}</TooltipContent>
                 </Tooltip>
               ) : null}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0"
-                    disabled={!onRefresh || refreshing || polishing}
-                    onClick={() => onRefresh?.()}
-                  >
-                    {refreshing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Regenerate from last prompt (↻)</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0"
-                    disabled={!onPolish || polishing || refreshing}
-                    onClick={() => onPolish?.()}
-                  >
-                    {polishing ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">AI polish: spacing, responsive, a11y (keeps behavior)</TooltipContent>
-              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button

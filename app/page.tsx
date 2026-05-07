@@ -103,8 +103,6 @@ export default function BuilderPage() {
   const [integrationsOpen, setIntegrationsOpen] = useState(false)
   const [integrationTab, setIntegrationTab] = useState<IntegrationTab>("supabase")
   const [publishOpen, setPublishOpen] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
-  const [polishing, setPolishing] = useState(false)
 
   useEffect(() => {
     // Avoid stale/inlined env checks: confirm config from server at runtime.
@@ -485,125 +483,6 @@ export default function BuilderPage() {
     [persisted.projects],
   )
 
-  const handleRefresh = useCallback(async () => {
-    if (!lastUserPrompt.trim()) {
-      toast.error("Nothing to refresh yet")
-      return
-    }
-    setRefreshing(true)
-    try {
-      const proj = persisted.projects.find((p) => p.id === persisted.activeProjectId)
-      const ver = proj?.versions.find((v) => v.id === currentVersionId)
-      const approvedPlan = ver?.approvedPlan
-      const planClarifications = ver?.planClarifications
-      const messages =
-        approvedPlan && ver?.assistantReply?.trim()
-          ? [
-              { role: "user" as const, content: lastUserPrompt },
-              { role: "assistant" as const, content: ver.assistantReply.slice(0, 8000) },
-              {
-                role: "user" as const,
-                content:
-                  "Regenerate the full preview from scratch. Follow the approved plan and the assistant summary above; keep the same user intent.",
-              },
-            ]
-          : [{ role: "user" as const, content: lastUserPrompt }]
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages,
-          flags: { supabaseConfigured: Boolean(persisted.integrations.supabase) },
-          ...(approvedPlan ? { approvedPlan } : {}),
-          ...(planClarifications?.length ? { clarifications: planClarifications } : {}),
-        }),
-      })
-      const data = (await res.json()) as GenerateResponse & { error?: string }
-      if (!res.ok) throw new Error(data.error ?? "Regenerate failed")
-      handleGenerateSuccess({
-        reply: data.reply,
-        userPrompt: lastUserPrompt,
-        appTsx: data.appTsx,
-        extraFiles: data.extraFiles,
-        ...(approvedPlan !== undefined ? { approvedPlan } : {}),
-        ...(planClarifications?.length ? { planClarifications } : {}),
-      })
-      toast.success(approvedPlan ? "Preview refreshed (using saved plan)" : "Preview refreshed")
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Refresh failed")
-    } finally {
-      setRefreshing(false)
-    }
-  }, [
-    lastUserPrompt,
-    persisted.integrations.supabase,
-    persisted.projects,
-    persisted.activeProjectId,
-    currentVersionId,
-    handleGenerateSuccess,
-  ])
-
-  const handlePolish = useCallback(async () => {
-    if (!hasGenerated) return
-    const { appTsx: appBody, extraFiles } = splitModelFiles(modelFiles)
-    if (!appBody?.trim()) {
-      toast.error("Nothing to polish yet")
-      return
-    }
-    setPolishing(true)
-    try {
-      const proj = persisted.projects.find((p) => p.id === persisted.activeProjectId)
-      const ver = proj?.versions.find((v) => v.id === currentVersionId)
-      const refineFrom = {
-        appTsx: appBody,
-        ...(Object.keys(extraFiles).length > 0 ? { extraFiles } : {}),
-      }
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [
-            {
-              role: "user",
-              content:
-                "Polish the live preview: improve spacing, responsive grids, typography, and accessibility. Do not remove features or change business logic.",
-            },
-          ],
-          flags: { supabaseConfigured: Boolean(persisted.integrations.supabase) },
-          ...(ver?.approvedPlan ? { approvedPlan: ver.approvedPlan } : {}),
-          ...(ver?.planClarifications?.length ? { clarifications: ver.planClarifications } : {}),
-          refineFrom,
-        }),
-      })
-      const data = (await res.json()) as GenerateResponse & { error?: string }
-      if (!res.ok) throw new Error(data.error ?? "Polish failed")
-      handleGenerateSuccess({
-        reply: data.reply,
-        userPrompt: lastUserPrompt || "UI polish",
-        appTsx: data.appTsx,
-        extraFiles: data.extraFiles,
-        ...(ver?.approvedPlan !== undefined ? { approvedPlan: ver.approvedPlan } : {}),
-        ...(ver?.planClarifications !== undefined && ver.planClarifications.length > 0
-          ? { planClarifications: ver.planClarifications }
-          : {}),
-      })
-      toast.success("Preview polished")
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Polish failed")
-    } finally {
-      setPolishing(false)
-    }
-  }, [
-    hasGenerated,
-    modelFiles,
-    persisted.projects,
-    persisted.activeProjectId,
-    persisted.integrations.supabase,
-    currentVersionId,
-    lastUserPrompt,
-    handleGenerateSuccess,
-  ])
-
   const handlePreviewSourcesPatched = useCallback((patched: Record<string, string>) => {
     setModelFiles((prev) => ({ ...prev, ...patched }))
     const vid = currentVersionIdRef.current
@@ -793,10 +672,6 @@ export default function BuilderPage() {
               }
               sandpackMountKey={currentVersionId}
               sandpackFiles={sandpackFiles}
-              onRefresh={hasGenerated ? handleRefresh : undefined}
-              refreshing={refreshing}
-              onPolish={hasGenerated ? handlePolish : undefined}
-              polishing={polishing}
               onToggleExpand={hasGenerated ? () => setPreviewExpanded(!previewExpanded) : undefined}
               previewExpanded={previewExpanded}
               onPublish={hasGenerated ? () => setPublishOpen(true) : undefined}

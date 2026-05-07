@@ -72,6 +72,7 @@ interface Message {
   changedFiles?: string[]
   /** When set, this assistant turn is a plan awaiting user confirmation. */
   plan?: PlanSnapshot
+  activity?: { id: string; label: string; status: "pending" | "active" | "done" | "error"; detail?: string }[]
 }
 
 type PreviewBundleApiResponse = {
@@ -155,11 +156,26 @@ function buildFallbackErrorAppTsx(args: { title: string; detail: string }): stri
 function GeneratingStatus({
   label,
   stage,
+  activity,
 }: {
   label?: "planning" | "building"
   stage?: Message["generatingStage"]
+  activity?: Message["activity"]
 }) {
   const { t } = useI18n()
+  const segmentByStage: Partial<
+    Record<
+      NonNullable<Message["generatingStage"]>,
+      { start: number; end: number; etaMs: number }
+    >
+  > = {
+    planning_request: { start: 0, end: 20, etaMs: 6000 },
+    planning_parse: { start: 20, end: 45, etaMs: 8000 },
+    waiting_confirm: { start: 45, end: 55, etaMs: 6000 },
+    codegen_request: { start: 55, end: 75, etaMs: 20000 },
+    codegen_parse: { start: 75, end: 95, etaMs: 20000 },
+    done: { start: 95, end: 100, etaMs: 600 },
+  }
   const percentByStage: Partial<Record<NonNullable<Message["generatingStage"]>, number>> = {
     planning_request: 20,
     planning_parse: 45,
@@ -202,23 +218,61 @@ function GeneratingStatus({
   const cur = stage && stage in lines ? lines[stage as Exclude<Message["generatingStage"], "done">] : fallback
   const targetPct = stage ? percentByStage[stage] : undefined
   const [displayPct, setDisplayPct] = useState<number>(1)
+  const segRef = useRef<{
+    stage: Message["generatingStage"] | undefined
+    startTs: number
+    startPct: number
+    endPct: number
+    etaMs: number
+  } | null>(null)
 
   useEffect(() => {
-    // Smooth, non-decreasing progress toward stage target. Avoids sudden 10→70 jumps and 90% stalls.
-    const target = Math.max(displayPct, targetPct ?? (label === "planning" ? 40 : 80))
-    const id = window.setInterval(() => {
+    // ETA-based smooth progress: distribute percent growth over time, never stalling.
+    const seg = stage ? segmentByStage[stage] : undefined
+    const endPct = stage === "done" ? 100 : seg?.end ?? Math.max(displayPct, targetPct ?? (label === "planning" ? 55 : 90))
+    const etaMs = seg?.etaMs ?? 18000
+    if (!segRef.current || segRef.current.stage !== stage) {
+      segRef.current = {
+        stage,
+        startTs: Date.now(),
+        startPct: Math.max(1, Math.min(99, displayPct)),
+        endPct: Math.max(1, Math.min(100, endPct)),
+        etaMs: Math.max(300, etaMs),
+      }
+    } else {
+      // If stage hasn't changed, allow endPct to drift upward a bit (prevents plateau).
+      segRef.current.endPct = Math.min(99, Math.max(segRef.current.endPct, endPct))
+    }
+
+    let raf = 0
+    const tick = () => {
       setDisplayPct((prev) => {
-        const t = stage === "done" ? 100 : target
-        if (prev >= t) return prev
-        const remaining = t - prev
-        // Ease-out: larger steps early, smaller near the target.
-        const step = Math.max(1, Math.min(6, Math.ceil(remaining / 12)))
-        return Math.min(t, prev + step)
+        const s = segRef.current
+        if (!s) return prev
+        if (stage === "done") return 100
+        const now = Date.now()
+        const elapsed = Math.max(0, now - s.startTs)
+        const t = Math.min(1, elapsed / s.etaMs)
+        const ease = 1 - Math.pow(1 - t, 2) // ease-out
+        let next = s.startPct + (s.endPct - s.startPct) * ease
+
+        // After reaching the segment end, keep slowly creeping (up to +4%) while waiting.
+        if (t >= 1 && prev >= s.endPct - 0.01) {
+          const creepMax = Math.min(99, s.endPct + 4)
+          const extra = elapsed - s.etaMs
+          const creep = (creepMax - s.endPct) * (1 - Math.exp(-extra / 12000))
+          next = s.endPct + creep
+        }
+
+        next = Math.max(prev, next)
+        next = Math.min(99, next)
+        return Math.round(next)
       })
-    }, 120)
-    return () => window.clearInterval(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, targetPct, label])
+      raf = window.requestAnimationFrame(tick)
+    }
+    raf = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(raf)
+  }, [stage, label, targetPct])
 
   const title = `${cur.title} (${displayPct}%)`
 
@@ -229,6 +283,23 @@ function GeneratingStatus({
         {title}
       </p>
       {cur.detail ? <p className="text-xs text-muted-foreground pl-6">{cur.detail}</p> : null}
+      {activity?.length ? (
+        <div className="pt-2 space-y-1">
+          {activity.map((a) => (
+            <div key={a.id} className="flex items-start gap-2 text-xs">
+              <span className="mt-0.5">
+                {a.status === "done" ? "✓" : a.status === "error" ? "!" : "•"}
+              </span>
+              <div className="min-w-0">
+                <div className={cn(a.status === "error" ? "text-destructive" : "text-foreground/90")}>
+                  {a.label}
+                </div>
+                {a.detail ? <div className="text-muted-foreground break-words">{a.detail}</div> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -641,6 +712,11 @@ export function ChatPanel({
           isGenerating: true,
           generatingLabel: "building",
           generatingStage: "codegen_request",
+          activity: [
+            { id: "codegen", label: lang === "zh-HK" ? "生成程式碼變更" : "Generating code changes", status: "active" },
+            { id: "bundle", label: lang === "zh-HK" ? "檢查預覽打包" : "Running bundle check", status: "pending" },
+            { id: "runtime", label: lang === "zh-HK" ? "檢查預覽執行" : "Running runtime check", status: "pending" },
+          ],
         },
       ])
       try {
@@ -656,6 +732,22 @@ export function ChatPanel({
           clarifications: baseClarifications,
           userGoalForRepair: userText,
         })
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? {
+                  ...m,
+                  activity: (m.activity ?? []).map((a) =>
+                    a.id === "codegen"
+                      ? { ...a, status: "done" }
+                      : a.id === "bundle"
+                        ? { ...a, status: "done" }
+                        : a,
+                  ),
+                }
+              : m,
+          ),
+        )
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === assistantId
@@ -724,6 +816,11 @@ export function ChatPanel({
           isGenerating: true,
           generatingLabel: "building",
           generatingStage: "codegen_request",
+          activity: [
+            { id: "codegen", label: lang === "zh-HK" ? "生成程式碼" : "Generating code", status: "active" },
+            { id: "bundle", label: lang === "zh-HK" ? "檢查預覽打包" : "Running bundle check", status: "pending" },
+            { id: "runtime", label: lang === "zh-HK" ? "檢查預覽執行" : "Running runtime check", status: "pending" },
+          ],
         },
       ])
       const historyForApi = [...messages, userMessage]
@@ -732,6 +829,22 @@ export function ChatPanel({
         const data = await generateWithBundleGate(historyForApi, first, {
           userGoalForRepair: userText,
         })
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? {
+                  ...m,
+                  activity: (m.activity ?? []).map((a) =>
+                    a.id === "codegen"
+                      ? { ...a, status: "done" }
+                      : a.id === "bundle"
+                        ? { ...a, status: "done" }
+                        : a,
+                  ),
+                }
+              : m,
+          ),
+        )
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === assistantId
@@ -1089,7 +1202,11 @@ export function ChatPanel({
                   )}
                 >
                   {message.isGenerating ? (
-                    <GeneratingStatus label={message.generatingLabel} stage={message.generatingStage} />
+                    <GeneratingStatus
+                      label={message.generatingLabel}
+                      stage={message.generatingStage}
+                      activity={message.activity}
+                    />
                   ) : (
                     <>
                       <p className="text-sm whitespace-pre-wrap">{message.content}</p>
@@ -1308,9 +1425,7 @@ export function ChatPanel({
             </Button>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground text-center">
-          {t("chat_footer_note")}
-        </p>
+        {/* Footer note removed (per UX request). */}
       </div>
     </div>
   )
