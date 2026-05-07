@@ -32,6 +32,46 @@ function resolveNodeModulesRoot(): string | null {
   }
 }
 
+/**
+ * In some serverless runtimes, esbuild cannot resolve bare "react/jsx-runtime" from a temp
+ * working directory. Resolve react's entry files to absolute paths under node_modulesRoot.
+ */
+function createReactAbsoluteResolvePlugin(nodeModulesRoot: string): esbuild.Plugin {
+  const stubPkg = path.join(nodeModulesRoot, "package.json")
+
+  function resolveBare(id: string): string | null {
+    try {
+      const req = createRequire(stubPkg)
+      return req.resolve(id)
+    } catch {
+      return null
+    }
+  }
+
+  const reactMain = resolveBare("react")
+  const jsxRuntime = resolveBare("react/jsx-runtime")
+  const reactDomMain = resolveBare("react-dom")
+  const reactDomClient = resolveBare("react-dom/client")
+
+  return {
+    name: "react-absolute-resolve",
+    setup(build) {
+      build.onResolve({ filter: /^react$/ }, () =>
+        reactMain ? { path: reactMain } : undefined,
+      )
+      build.onResolve({ filter: /^react\/jsx-runtime$/ }, () =>
+        jsxRuntime ? { path: jsxRuntime } : undefined,
+      )
+      build.onResolve({ filter: /^react-dom$/ }, () =>
+        reactDomMain ? { path: reactDomMain } : undefined,
+      )
+      build.onResolve({ filter: /^react-dom\/client$/ }, () =>
+        reactDomClient ? { path: reactDomClient } : undefined,
+      )
+    },
+  }
+}
+
 function toDiskPath(tmpDir: string, virtualPath: string): string {
   const rel = virtualPath.replace(/^\//, "")
   return path.join(tmpDir, rel)
@@ -166,6 +206,7 @@ if (el) {
     const resolvedNodeModules = resolveNodeModulesRoot()
     const fallbackNodeModules = path.join(process.cwd(), "node_modules")
     const nodeModulesRoot = resolvedNodeModules ?? fallbackNodeModules
+    const reactAbsPlugin = createReactAbsoluteResolvePlugin(nodeModulesRoot)
 
     let lastFailure: unknown
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -192,7 +233,7 @@ if (el) {
           treeShaking: true,
           mainFields: ["module", "browser", "main"],
           nodePaths: [nodeModulesRoot],
-          plugins: [stripCssImports],
+          plugins: [stripCssImports, reactAbsPlugin],
         })
 
         const outs = result.outputFiles ?? []
