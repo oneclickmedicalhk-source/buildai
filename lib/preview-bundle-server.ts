@@ -7,6 +7,7 @@ import fsSync from "fs"
 import os from "os"
 import path from "path"
 import { pathToFileURL } from "node:url"
+import { createRequire } from "node:module"
 import * as esbuild from "esbuild"
 import postcss from "postcss"
 import {
@@ -19,6 +20,17 @@ import {
   applyEsbuildJsxCompareFixes,
   applyEsbuildStrayAfterCloseTagFixes,
 } from "@/lib/fix-jsx-text-comparisons"
+
+function resolveNodeModulesRoot(): string | null {
+  try {
+    const require = createRequire(import.meta.url)
+    const reactPkg = require.resolve("react/package.json")
+    // .../node_modules/react/package.json -> .../node_modules
+    return path.dirname(path.dirname(reactPkg))
+  } catch {
+    return null
+  }
+}
 
 function toDiskPath(tmpDir: string, virtualPath: string): string {
   const rel = virtualPath.replace(/^\//, "")
@@ -149,7 +161,11 @@ if (el) {
       },
     }
 
-    const projectNodeModules = path.join(process.cwd(), "node_modules")
+    // In serverless (e.g. Vercel), process.cwd() may not contain node_modules at runtime.
+    // Use require.resolve to find the real install path.
+    const resolvedNodeModules = resolveNodeModulesRoot()
+    const fallbackNodeModules = path.join(process.cwd(), "node_modules")
+    const nodeModulesRoot = resolvedNodeModules ?? fallbackNodeModules
 
     let lastFailure: unknown
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -170,7 +186,7 @@ if (el) {
           logLevel: "silent",
           treeShaking: true,
           mainFields: ["module", "browser", "main"],
-          nodePaths: [projectNodeModules],
+          nodePaths: [nodeModulesRoot],
           plugins: [stripCssImports],
         })
 
