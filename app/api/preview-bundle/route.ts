@@ -3,6 +3,12 @@ import { buildPreviewBundle } from "@/lib/preview-bundle-server"
 
 export const runtime = "nodejs"
 
+// Ensure Vercel file-tracing includes React dependencies for the runtime bundler.
+// We import package.json files (not react-dom/client) to avoid Next treating this route
+// as a Client Component while still forcing dependency tracing in serverless builds.
+import "react/package.json"
+import "react-dom/package.json"
+
 const MAX_FILE_BYTES = 450_000
 const MAX_FILES = 60
 
