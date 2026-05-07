@@ -32,19 +32,32 @@ function resolveNodeModulesRoot(): string | null {
   }
 }
 
+/** `createRequire` must anchor to a real file — `node_modules/package.json` usually does not exist. */
+function createRequireForProjectPackages(): ReturnType<typeof createRequire> {
+  const rootPkg = path.join(process.cwd(), "package.json")
+  if (fsSync.existsSync(rootPkg)) {
+    return createRequire(rootPkg)
+  }
+  return createRequire(import.meta.url)
+}
+
 /**
  * In some serverless runtimes, esbuild cannot resolve bare "react/jsx-runtime" from a temp
  * working directory. Resolve react's entry files to absolute paths under node_modulesRoot.
  */
-function createReactAbsoluteResolvePlugin(nodeModulesRoot: string): esbuild.Plugin {
-  const stubPkg = path.join(nodeModulesRoot, "package.json")
+function createReactAbsoluteResolvePlugin(_nodeModulesRoot: string): esbuild.Plugin {
+  const reqProject = createRequireForProjectPackages()
+  const reqMeta = createRequire(import.meta.url)
 
   function resolveBare(id: string): string | null {
     try {
-      const req = createRequire(stubPkg)
-      return req.resolve(id)
+      return reqProject.resolve(id)
     } catch {
-      return null
+      try {
+        return reqMeta.resolve(id)
+      } catch {
+        return null
+      }
     }
   }
 
@@ -52,6 +65,13 @@ function createReactAbsoluteResolvePlugin(nodeModulesRoot: string): esbuild.Plug
   const jsxRuntime = resolveBare("react/jsx-runtime")
   const reactDomMain = resolveBare("react-dom")
   const reactDomClient = resolveBare("react-dom/client")
+
+  if (!jsxRuntime || !reactDomClient) {
+    console.warn(
+      "[preview-bundle] React path resolution incomplete",
+      { jsxRuntime: Boolean(jsxRuntime), reactDomClient: Boolean(reactDomClient), cwd: process.cwd() },
+    )
+  }
 
   return {
     name: "react-absolute-resolve",

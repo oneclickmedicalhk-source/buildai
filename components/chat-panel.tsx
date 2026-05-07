@@ -528,6 +528,8 @@ export function ChatPanel({
       refineKind?: "polish" | "edit"
       editOutput?: "auto" | "full" | "patch"
     },
+    /** Internal: avoid infinite loop when auto-retrying patch → full output. */
+    _retry?: { patchFullRetried?: boolean },
   ) => {
     if (!accessToken) {
       toast.error(lang === "zh-HK" ? "請先登入先可以用 AI 功能。" : "Please sign in to use AI features.")
@@ -562,6 +564,23 @@ export function ChatPanel({
     })
     const data = (await res.json()) as GenerateResponse & { error?: string; code?: string }
     if (!res.ok) {
+      const errText = data.error ?? ""
+      const patchApplyFailed =
+        data.code === "PATCH_APPLY_FAILED" ||
+        errText.includes("Patch context mismatch") ||
+        errText.includes("Patch delete mismatch")
+      if (
+        !_retry?.patchFullRetried &&
+        opts?.editOutput === "patch" &&
+        opts?.refineFrom &&
+        patchApplyFailed
+      ) {
+        return callGenerate(
+          history,
+          { ...opts, editOutput: "full" },
+          { patchFullRetried: true },
+        )
+      }
       if (res.status === 402 || data.code === "INSUFFICIENT_CREDITS") {
         const kind: ResumePayload["kind"] =
           opts?.refineKind === "edit" || opts?.editOutput === "patch"

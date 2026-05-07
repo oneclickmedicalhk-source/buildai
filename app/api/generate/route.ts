@@ -242,11 +242,19 @@ export async function POST(req: Request) {
       let merged = { ...existingFiles }
       const allChangedPaths = new Set<string>()
 
-      for (const [path, diff] of Object.entries(p.patches ?? {})) {
-        if (!diff?.trim()) continue
-        const applied = applyUnifiedDiffToVirtualFiles(merged, diff)
-        merged = applied.patched
-        for (const c of applied.changed) allChangedPaths.add(c)
+      try {
+        for (const [path, diff] of Object.entries(p.patches ?? {})) {
+          if (!diff?.trim()) continue
+          const applied = applyUnifiedDiffToVirtualFiles(merged, diff)
+          merged = applied.patched
+          for (const c of applied.changed) allChangedPaths.add(c)
+        }
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        return NextResponse.json(
+          { error: message, code: "PATCH_APPLY_FAILED" },
+          { status: 422 },
+        )
       }
 
       const appTsx = merged["/App.tsx"]
