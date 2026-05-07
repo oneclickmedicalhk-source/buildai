@@ -172,7 +172,12 @@ if (el) {
       await writeCodegenSourcesToTmp(tmpDir, sources)
       try {
         const result = await esbuild.build({
-          absWorkingDir: tmpDir,
+          // IMPORTANT:
+          // Use the project working dir for package resolution so imports like "react/jsx-runtime"
+          // can be resolved from the deployed function's dependencies.
+          // If we keep absWorkingDir as the tmp dir, esbuild walks up from /tmp and will never
+          // find node_modules in serverless environments.
+          absWorkingDir: process.cwd(),
           entryPoints: [entryPath],
           bundle: true,
           write: false,
