@@ -24,7 +24,11 @@ const nextConfig = {
    * App router route keys must be the route path (no /route suffix).
    */
   outputFileTracingIncludes: {
-    "/api/preview-bundle": ["./node_modules/react/**", "./node_modules/react-dom/**"],
+    "/api/preview-bundle": [
+      "./node_modules/react/**",
+      "./node_modules/react-dom/**",
+      "./node_modules/scheduler/**",
+    ],
   },
 }
 
