@@ -16,6 +16,16 @@ const nextConfig = {
     "lightningcss",
     "postcss",
   ],
+  /**
+   * Vercel output-file-tracing may omit transitive deps that are only resolved at runtime
+   * (e.g. esbuild resolving "react/jsx-runtime" from the server preview bundler).
+   * Force-include React packages for the preview bundle API route.
+   *
+   * App router route keys must be the route path (no /route suffix).
+   */
+  outputFileTracingIncludes: {
+    "/api/preview-bundle": ["./node_modules/react/**", "./node_modules/react-dom/**"],
+  },
 }
 
 export default nextConfig
