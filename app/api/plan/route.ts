@@ -48,6 +48,12 @@ export async function POST(req: Request) {
     }
 
     const lastUser = [...body.messages].reverse().find((m) => m.role === "user")?.content ?? ""
+    const clarificationsBlock =
+      body.clarifications?.length
+        ? `\n\n## USER ANSWERS (mandatory — incorporate into the plan)\n${body.clarifications
+            .map((c) => `- ${c.questionId}: ${c.answer}`)
+            .join("\n")}\n\nRules:\n- Incorporate USER ANSWERS into plan.summary, assumptions, views, buildTodos, and designNotes as needed.\n- After incorporating, minimize plan.openQuestions; if the answers fully resolve the gaps, set openQuestions to [].\n`
+        : ""
 
     const systemJsonHint =
       "Return **only** one JSON object with keys reply and plan. No markdown fences, no text before or after the JSON. Do not include appTsx or code."
@@ -90,7 +96,7 @@ export async function POST(req: Request) {
       supabaseConfigured,
       ...(uiStyleKit ? { uiStyleKit } : {}),
     })
-    const baseSystemWithTheme = `${baseSystem}\n\nTheme hint (use in visualThemeKeywords + designNotes): ${themeHint}\nBrand mood hint (reflect in designNotes + demo copy tone): ${brandMood}`
+    const baseSystemWithTheme = `${baseSystem}\n\nTheme hint (use in visualThemeKeywords + designNotes): ${themeHint}\nBrand mood hint (reflect in designNotes + demo copy tone): ${brandMood}${clarificationsBlock}`
 
     const system =
       provider === "vertex_claude" || provider === "vertex_gemini"

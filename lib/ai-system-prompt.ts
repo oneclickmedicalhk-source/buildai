@@ -44,6 +44,10 @@ export function buildCodegenSystemPrompt(options: {
     options.themeTokens != null
       ? `\n### THEME TOKENS (mandatory — apply consistently)\n${JSON.stringify(options.themeTokens, null, 2)}\n\nTheme rules:\n- Apply \`appBgClass\` on the outermost app wrapper (background + base text).\n- Use \`surfaceClass\` on cards/panels.\n- Primary buttons should use \`accentClass\`; links/badges can use \`accentSoftClass\`.\n- Do not change layout/IA due to theme; only visual styling and safe flourishes.\n`
       : ""
+  const baseVibeRule =
+    options.themeTokens != null
+      ? "- Theme priority: THEME TOKENS are the single source of truth for palette/background/surfaces. Do NOT default to dark backgrounds unless the themeTokens specify it."
+      : "- Prefer emerald/green accents (e.g. emerald-400, emerald-500) and dark zinc backgrounds to match the host app."
   const supabaseBlock = options.supabaseConfigured
     ? `
 The user has connected Supabase in the app settings (credentials are injected as CRA env vars, NOT in your reply).
@@ -102,7 +106,7 @@ ${outputFormat}
 
 RULES:
 - Styling MUST use Tailwind CSS utility classes via className (no MUI/Chakra/Bootstrap unless user insists).
-- Prefer emerald/green accents (e.g. emerald-400, emerald-500) and dark zinc backgrounds to match the host app.
+${baseVibeRule}
 - Default export: a function component named App returning JSX.Element.
 - **Design system consistency (v0-style)**: reuse a small set of tokens across the whole app:
   - Spacing: prefer \`gap-2/3/4/6\` and section padding \`py-8/10/12 md:py-12/14\` (avoid random one-off paddings).

@@ -68,6 +68,15 @@ export const planRequestSchema = z.object({
       }),
     )
     .min(1),
+  clarifications: z
+    .array(
+      z.object({
+        questionId: z.string().min(1),
+        answer: z.string().min(1),
+      }),
+    )
+    .max(16)
+    .optional(),
   flags: aiRequestFlagsSchema.optional(),
 })
 

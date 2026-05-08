@@ -39,6 +39,7 @@ import type { GenerateResponse } from "@/lib/ai-generate-schema"
 import type { PlanResponse } from "@/lib/plan-schema"
 import type { PlanSnapshot } from "@/lib/plan-schema"
 import { PlanReviewCard } from "@/components/plan-review-card"
+import { PlanQuestionsCard } from "@/components/plan-questions-card"
 import { useAiPreferences } from "@/components/ai-preferences-context"
 import { useI18n } from "@/components/i18n-context"
 import { useAuth } from "@/components/auth-context"
@@ -72,6 +73,7 @@ interface Message {
   changedFiles?: string[]
   /** When set, this assistant turn is a plan awaiting user confirmation. */
   plan?: PlanSnapshot
+  planStage?: "questions" | "review"
   activity?: { id: string; label: string; status: "pending" | "active" | "done" | "error"; detail?: string }[]
 }
 
@@ -486,7 +488,10 @@ export function ChatPanel({
     [supabaseConfigured, aiProvider, uiStyleKit, themeId, themeVariantId],
   )
 
-  const callPlan = async (history: Message[]) => {
+  const callPlan = async (
+    history: Message[],
+    opts?: { clarifications?: { questionId: string; answer: string }[] },
+  ) => {
     if (!accessToken) {
       toast.error(lang === "zh-HK" ? "請先登入先可以用 AI 功能。" : "Please sign in to use AI features.")
       window.location.href = "/login"
@@ -501,7 +506,11 @@ export function ChatPanel({
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ messages: apiMessages, flags: apiFlags() }),
+      body: JSON.stringify({
+        messages: apiMessages,
+        ...(opts?.clarifications?.length ? { clarifications: opts.clarifications } : {}),
+        flags: apiFlags(),
+      }),
     })
     setMessages((prev) => {
       const id = pendingPlanMessageIdRef.current
@@ -627,13 +636,42 @@ export function ChatPanel({
         clarifications?: { questionId: string; answer: string }[]
         userGoalForRepair: string
         maxRepairAttempts?: number
+        assistantMessageId?: string
       },
     ): Promise<GenerateResponse> => {
       const maxRepairAttempts = opts.maxRepairAttempts ?? 2
 
       const runBundle = async (data: GenerateResponse): Promise<GenerateResponse> => {
+        if (opts.assistantMessageId) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === opts.assistantMessageId
+                ? {
+                    ...m,
+                    activity: (m.activity ?? []).map((a) =>
+                      a.id === "bundle" ? { ...a, status: "active" } : a,
+                    ),
+                  }
+                : m,
+            ),
+          )
+        }
         const files = normalizePreviewFiles(data.appTsx, data.extraFiles)
         const r = await callPreviewBundle(files)
+        if (opts.assistantMessageId) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === opts.assistantMessageId
+                ? {
+                    ...m,
+                    activity: (m.activity ?? []).map((a) =>
+                      a.id === "bundle" ? { ...a, status: "done" } : a,
+                    ),
+                  }
+                : m,
+            ),
+          )
+        }
         if (r.patchedFiles && Object.keys(r.patchedFiles).length > 0) {
           const next: GenerateResponse = { ...data }
           if (r.patchedFiles["/App.tsx"]) next.appTsx = r.patchedFiles["/App.tsx"]
@@ -656,12 +694,52 @@ export function ChatPanel({
         } catch (e) {
           const err = e instanceof Error ? e.message : String(e)
           if (attempt >= maxRepairAttempts) {
+            if (opts.assistantMessageId) {
+              const head = err.split("\n").find(Boolean)?.slice(0, 200) ?? err.slice(0, 200)
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === opts.assistantMessageId
+                    ? {
+                        ...m,
+                        activity: (m.activity ?? []).map((a) =>
+                          a.id === "bundle" ? { ...a, status: "error", detail: head } : a,
+                        ),
+                      }
+                    : m,
+                ),
+              )
+            }
             throw new Error(`Auto-check failed: your code didn't bundle.\n\n${err}`)
           }
 
           toast.message("Auto-fixing build errors…", {
             description: "We’re repairing the generated code before updating the preview.",
           })
+
+          if (opts.assistantMessageId) {
+            const head = err.split("\n").find(Boolean)?.slice(0, 200) ?? err.slice(0, 200)
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === opts.assistantMessageId
+                  ? {
+                      ...m,
+                      activity: [
+                        ...(m.activity ?? []),
+                        {
+                          id: `repair-${attempt + 1}`,
+                          label:
+                            lang === "zh-HK"
+                              ? `修復嘗試 ${attempt + 1}/${maxRepairAttempts + 1}`
+                              : `Repair attempt ${attempt + 1}/${maxRepairAttempts + 1}`,
+                          status: "active",
+                          detail: head,
+                        },
+                      ],
+                    }
+                  : m,
+              ),
+            )
+          }
 
           const repairInstruction: Message = {
             id: `bundle-repair-${Date.now()}-${attempt}`,
@@ -681,6 +759,20 @@ export function ChatPanel({
             refineKind: "edit",
             editOutput: "patch",
           })
+          if (opts.assistantMessageId) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === opts.assistantMessageId
+                  ? {
+                      ...m,
+                      activity: (m.activity ?? []).map((a) =>
+                        a.id === `repair-${attempt + 1}` ? { ...a, status: "done" } : a,
+                      ),
+                    }
+                  : m,
+              ),
+            )
+          }
           // If patch application failed server-side (context mismatch), fall back to a full rewrite.
           // This reduces cases where users are charged but preview cannot be updated.
           if (!cur?.appTsx?.trim()) {
@@ -750,6 +842,7 @@ export function ChatPanel({
           approvedPlan: baseApprovedPlan,
           clarifications: baseClarifications,
           userGoalForRepair: userText,
+          assistantMessageId: assistantId,
         })
         setMessages((prev) =>
           prev.map((m) =>
@@ -847,6 +940,7 @@ export function ChatPanel({
         const first = await callGenerate(historyForApi)
         const data = await generateWithBundleGate(historyForApi, first, {
           userGoalForRepair: userText,
+          assistantMessageId: assistantId,
         })
         setMessages((prev) =>
           prev.map((m) =>
@@ -944,6 +1038,7 @@ export function ChatPanel({
                 ...msg,
                 content: planData.reply,
                 plan: planData.plan,
+                planStage: planData.plan.openQuestions?.length ? "questions" : "review",
                 isGenerating: false,
                 generatingLabel: undefined,
               }
@@ -997,6 +1092,7 @@ export function ChatPanel({
         approvedPlan: plan,
         clarifications,
         userGoalForRepair: userGoal,
+        assistantMessageId: assistantId,
       })
       setMessages((prev) =>
         prev.map((msg) =>
@@ -1050,6 +1146,61 @@ export function ChatPanel({
       )
       onGenerateSuccess({ reply: msg, userPrompt: userGoal, appTsx: fallback })
     } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleConfirmPlanQuestions = async (
+    planMessageId: string,
+    clarifications: { questionId: string; answer: string }[],
+  ) => {
+    if (isLoading) return
+    const cur = messagesRef.current
+    const planIdx = cur.findIndex((m) => m.id === planMessageId)
+    if (planIdx < 0) return
+
+    const historyForPlan = cur
+      .slice(0, planIdx)
+      .filter((m) => !m.isGenerating && m.content.trim())
+
+    setIsLoading(true)
+    pendingPlanMessageIdRef.current = planMessageId
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === planMessageId
+          ? { ...m, isGenerating: true, generatingLabel: "planning", generatingStage: "planning_request" }
+          : m,
+      ),
+    )
+    try {
+      const planData = await callPlan(historyForPlan, { clarifications })
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === planMessageId
+            ? {
+                ...m,
+                content: planData.reply,
+                plan: planData.plan,
+                planStage: "review",
+                isGenerating: false,
+                generatingLabel: undefined,
+                generatingStage: undefined,
+              }
+            : m,
+        ),
+      )
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Something went wrong"
+      toast.error(msg)
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === planMessageId
+            ? { ...m, isGenerating: false, generatingLabel: undefined, generatingStage: undefined }
+            : m,
+        ),
+      )
+    } finally {
+      pendingPlanMessageIdRef.current = null
       setIsLoading(false)
     }
   }
@@ -1115,6 +1266,7 @@ export function ChatPanel({
         approvedPlan: p.opts?.approvedPlan,
         clarifications: p.opts?.clarifications,
         userGoalForRepair: p.userGoal,
+        assistantMessageId: assistantId,
       })
       setMessages((prev) =>
         prev.map((msg) =>
@@ -1230,14 +1382,27 @@ export function ChatPanel({
                     <>
                       <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                       {message.plan ? (
-                        <PlanReviewCard
-                          plan={message.plan}
-                          disabled={isLoading || planSuperseded}
-                          onRevisePlan={handleRevisePlan}
-                          onConfirmBuild={({ clarifications }) =>
-                            void handleConfirmBuild(message.id, message.plan!, clarifications)
-                          }
-                        />
+                        message.planStage === "questions" && message.plan.openQuestions.length > 0 ? (
+                          <PlanQuestionsCard
+                            questions={message.plan.openQuestions}
+                            disabled={isLoading || planSuperseded}
+                            prevLabel={lang === "zh-HK" ? "上一題" : "Previous"}
+                            nextLabel={lang === "zh-HK" ? "下一題" : "Next"}
+                            continueLabel={lang === "zh-HK" ? "繼續" : "Continue"}
+                            onConfirm={({ clarifications }) =>
+                              void handleConfirmPlanQuestions(message.id, clarifications)
+                            }
+                          />
+                        ) : (
+                          <PlanReviewCard
+                            plan={message.plan}
+                            disabled={isLoading || planSuperseded}
+                            onRevisePlan={handleRevisePlan}
+                            onConfirmBuild={({ clarifications }) =>
+                              void handleConfirmBuild(message.id, message.plan!, clarifications)
+                            }
+                          />
+                        )
                       ) : null}
                       {message.generatedComponent ? (
                         <div className="mt-3 pt-3 border-t border-border">
