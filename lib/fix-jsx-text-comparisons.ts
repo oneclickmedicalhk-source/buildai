@@ -50,7 +50,8 @@ function looksLikeJsxLessEqualParseError(text: string): boolean {
 function matchesLessEqualDiagnostic(m: esbuild.Message, sourceLine: string): boolean {
   if (!m.location) return false
   if (!looksLikeJsxLessEqualParseError(m.text ?? "")) return false
-  if (!sourceLine.includes("<=")) return false
+  // Location may drift by a line/column; don't require exact source-line comparator.
+  // The downstream fallback fixer is constrained to JSX plain text nodes only.
   return true
 }
 
@@ -130,6 +131,21 @@ export function applyGreaterEqualFixAtEsbuildLocation(
 }
 
 /**
+ * Safety-net replacement when esbuild location mapping drifts:
+ * only replace comparators inside plain JSX text nodes (`> ... <`),
+ * never inside JSX expressions (`{ ... <= ... }`).
+ */
+function applyJsxTextComparatorFallback(code: string): string {
+  const lines = code.split("\n")
+  const next = lines.map((line) =>
+    line
+      .replace(/(>[^<{]*?)<=([^<{]*?<)/g, "$1\u2264$2")
+      .replace(/(>[^<{]*?)>=([^<{]*?<)/g, "$1\u2265$2"),
+  )
+  return next.join("\n")
+}
+
+/**
  * Applies `<=` / `>=` JSX-text repairs for matching esbuild diagnostics. Returns a new map or null.
  */
 export function applyEsbuildJsxCompareFixes(
@@ -153,17 +169,49 @@ export function applyEsbuildJsxCompareFixes(
 
     if (matchesLessEqualDiagnostic(m, line)) {
       const n = applyLessEqualFixAtEsbuildLocation(next, m.location)
-      if (n !== next) next = n
+      if (n !== next) {
+        next = n
+      } else {
+        const n2 = applyJsxTextComparatorFallback(next)
+        if (n2 !== next) next = n2
+      }
     }
     if (matchesGreaterEqualDiagnostic(m, sourceLineAt(next, m.location.line))) {
       const n = applyGreaterEqualFixAtEsbuildLocation(next, m.location)
-      if (n !== next) next = n
+      if (n !== next) {
+        next = n
+      } else {
+        const n2 = applyJsxTextComparatorFallback(next)
+        if (n2 !== next) next = n2
+      }
     }
 
     if (next !== prev) {
       if (!out) out = { ...sources }
       out[vp] = next
       changed = true
+    }
+  }
+
+  // Final safety-net: if diagnostics indicate JSX-text comparator parse errors but
+  // file/line mapping failed, apply constrained fallback across all source files.
+  if (!changed) {
+    const hasComparatorParseError = messages.some((m) =>
+      looksLikeJsxLessEqualParseError(m.text ?? "") ||
+      (m.text ?? "").includes("not valid inside a JSX element"),
+    )
+    if (hasComparatorParseError) {
+      let fallbackChanged = false
+      const fallbackOut: Record<string, string> = { ...sources }
+      for (const [k, v] of Object.entries(sources)) {
+        if (typeof v !== "string") continue
+        const n = applyJsxTextComparatorFallback(v)
+        if (n !== v) {
+          fallbackOut[k] = n
+          fallbackChanged = true
+        }
+      }
+      if (fallbackChanged) return fallbackOut
     }
   }
 

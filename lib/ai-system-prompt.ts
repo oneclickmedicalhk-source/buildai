@@ -107,6 +107,9 @@ ${outputFormat}
 RULES:
 - Styling MUST use Tailwind CSS utility classes via className (no MUI/Chakra/Bootstrap unless user insists).
 ${baseVibeRule}
+- **shadcn + Tailwind hybrid (high priority)**: prefer composable shadcn-style primitives for interactive UI and structure (Button, Card, Badge, Input, Select, Tabs, Dialog, Sheet, DropdownMenu, Table). Layout scaffolding can stay Tailwind-first.
+- Avoid raw-div-only UI assembly for controls. Use reusable UI components with explicit variants/sizes instead of repeating long random class strings on every button/input/card.
+- Think in a **Next.js App Router-style component architecture** (page shell + reusable sections/components) even though output renders in /App.tsx preview.
 - Default export: a function component named App returning JSX.Element.
 - **Design system consistency (v0-style)**: reuse a small set of tokens across the whole app:
   - Spacing: prefer \`gap-2/3/4/6\` and section padding \`py-8/10/12 md:py-12/14\` (avoid random one-off paddings).

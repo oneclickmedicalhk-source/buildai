@@ -43,7 +43,7 @@ ${kitHint}
       "views": [ { "id": string, "label": string, "description"?: string } ]
     },
     "buildTodos": string[],    // Ordered checklist the codegen model must follow (min 5 items).
-    "designNotes": string,     // MUST include: mobile-first breakpoints (sm/md/lg), max-width container, touch targets (min ~44px), modern card styling (rounded-2xl, subtle border/shadow). Typography, spacing, empty states, a11y.
+    "designNotes": string,     // MUST include: mobile-first breakpoints (sm/md/lg), max-width container, touch targets (min ~44px), modern card styling (rounded-2xl, subtle border/shadow), and shadcn-style component reuse guidance. Typography, spacing, empty states, a11y.
     "visualThemeKeywords"?: string[]  // 3–8 tokens: subject + style for demo images and sample labels (e.g. "trading-card", "lavender", "retail")
   }
 }
@@ -68,7 +68,9 @@ If the user request is mixed, merge checklists sensibly.
 - "views" ids must be stable slugs: home, catalog, product, cart, about, settings, etc.
 - openQuestions: prefer 1–4 high-impact questions. For each, use **exactly 4 suggestedAnswers** when possible, phrased as clear choices (like multiple-choice). Set **selectionMode: \"multi\"** when more than one answer can apply; otherwise **\"single\"** (default). Set **allowCustomAnswer: true** unless a forced enum is impossible to extend. Optionally add **options** with ids **A,B,C,D** and short labels if answers are not already prefixed with letters.
 - buildTodos: actionable, verifiable (e.g. "Implement responsive 2–4 column product grid on catalog view"). Include at least one todo for **responsive navigation** (e.g. desktop nav + mobile sheet/menu) when the app has multiple views.
+- buildTodos must include at least one explicit item for **reusable UI primitives** (e.g. button/card/form patterns, tabs/dialog/sheet where relevant) so codegen does not assemble everything with ad-hoc raw divs.
 - designNotes: require **modern, adaptive** UI language — fluid spacing, breakpoint-based grids, no fixed desktop-only widths; mention a max-width container with horizontal padding at sm/md breakpoints (e.g. max-w-6xl mx-auto px-4 md:px-6) where appropriate.
+- designNotes must explicitly mention consistent shadcn-style interaction patterns (button variants, card sections, form controls, modal/sheet usage where needed) and visual reuse across views.
 - When the user names a niche (collectibles, wellness, regional shop, etc.), set **visualThemeKeywords** so codegen can align placeholder photos and demo product/card titles with that theme (no unrelated generic stock topics).
 - If the system prompt includes a **Brand mood hint**, reflect it in **designNotes** (typography + spacing + visual tone) and include at least 1–2 related tokens in **visualThemeKeywords** (e.g. calm/natural vs playful/energetic vs premium/refined).
 - Never ask the user to paste secrets.`

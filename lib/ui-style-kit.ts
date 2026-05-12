@@ -6,6 +6,7 @@ import { z } from "zod"
 
 export const uiStyleKitSchema = z.enum([
   "default",
+  "v0_hybrid",
   "admin_shell",
   "storefront",
   "storefront_admin",
@@ -17,6 +18,17 @@ export type UiStyleKitId = z.infer<typeof uiStyleKitSchema>
 
 export function buildCodegenUiStyleKitSection(kit: UiStyleKitId): string {
   if (kit === "default") return ""
+
+  if (kit === "v0_hybrid") {
+    return `
+### UI STYLE KIT: v0_hybrid (mandatory — modern Next/Tailwind/shadcn style)
+- Compose pages with a clear **shell + sections** structure (hero/filters/content/footer) and reuse shared UI primitives.
+- Prefer shadcn-style building blocks for interaction and hierarchy: Button/Card/Badge/Input/Tabs/Dialog/Sheet/Table.
+- Keep utility usage disciplined: consistent spacing scale (\`gap-2/3/4/6\`, \`py-8/10/12\`), rounded corners (\`rounded-xl\` + \`rounded-2xl\`), subtle borders/shadows.
+- Desktop density should feel product-grade (multi-column, compact controls), while mobile keeps larger tap targets and collapsible nav.
+- Reuse component variants (primary/secondary/outline actions, card sections, filter chips) instead of one-off class combinations.
+`
+  }
 
   if (kit === "admin_shell") {
     return `
@@ -71,6 +83,9 @@ export function buildCodegenUiStyleKitSection(kit: UiStyleKitId): string {
 
 export function buildPlanUiStyleKitHint(kit: UiStyleKitId): string {
   if (kit === "default") return ""
+  if (kit === "v0_hybrid") {
+    return `\n- **UI style kit**: v0_hybrid — plan for reusable component sections with shadcn-style primitives and a polished responsive shell. buildTodos must mention component reuse (button/card/form patterns) and consistency across views.`
+  }
   if (kit === "admin_shell") {
     return `\n- **UI style kit**: admin_shell — plan for a **persistent admin shell** (sidebar + top bar + main); informationArchitecture views should map to the **same shell** (swap main only). buildTodos must mention the shared shell once.`
   }
