@@ -93,6 +93,7 @@ export default function BuilderPage() {
     attempts: 0,
   })
   const runtimeRepairInFlightRef = useRef<Set<string>>(new Set())
+  const runtimeStatusToastKeyRef = useRef<string | null>(null)
 
   const [persisted, setPersisted] = useState<BuilderPersistedState>(() => createEmptyPersistedState())
   const [modelFiles, setModelFiles] = useState<Record<string, string>>({})
@@ -198,6 +199,23 @@ export default function BuilderPage() {
     syncRef.current = new SyncEngine({
       onRemoteMerged: (merged) => {
         setPersisted(merged)
+        const mergedActive = merged.projects.find((p) => p.id === merged.activeProjectId) ?? merged.projects[0] ?? null
+        const preferredVersion =
+          mergedActive?.versions.find((v) => v.id === currentVersionIdRef.current) ??
+          mergedActive?.versions[mergedActive.versions.length - 1]
+        if (preferredVersion) {
+          setModelFiles(preferredVersion.files)
+          setCurrentVersionId(preferredVersion.id)
+          setHasGenerated(true)
+          setLastUserPrompt(preferredVersion.userPrompt)
+          setGeneratedTitle(truncate(preferredVersion.userPrompt, 40))
+        } else {
+          setModelFiles({})
+          setCurrentVersionId(null)
+          setHasGenerated(false)
+          setLastUserPrompt("")
+          setGeneratedTitle("")
+        }
       },
     })
     void syncRef.current.pullAndMerge(next)
@@ -299,6 +317,10 @@ export default function BuilderPage() {
       if (args.status === "ok") {
         if (runtimeRepairRef.current.lastFilesKey !== args.filesKey) {
           runtimeRepairRef.current = { lastFilesKey: args.filesKey, attempts: 0 }
+        }
+        if (runtimeStatusToastKeyRef.current !== args.filesKey) {
+          runtimeStatusToastKeyRef.current = args.filesKey
+          toast.success("Runtime check passed.")
         }
         return
       }
@@ -654,6 +676,7 @@ export default function BuilderPage() {
               const { appTsx: appBody, extraFiles } = splitModelFiles(modelFiles)
               const refineFrom =
                 appBody?.trim() ? { appTsx: appBody, ...(Object.keys(extraFiles).length ? { extraFiles } : {}) } : null
+              const canRefineExisting = Boolean(ver && proj?.versions.length)
               return (
             <ChatPanel
               key={persisted.activeProjectId ?? "none"}
@@ -664,6 +687,7 @@ export default function BuilderPage() {
               onOpenIntegrations={() => openIntegrations("supabase")}
               onGenerateSuccess={handleGenerateSuccess}
               hasGenerated={hasGenerated}
+              canRefineExisting={canRefineExisting}
               refineFrom={refineFrom}
               currentApprovedPlan={ver?.approvedPlan}
               currentClarifications={ver?.planClarifications}

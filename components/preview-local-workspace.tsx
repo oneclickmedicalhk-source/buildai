@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useI18n } from "@/components/i18n-context"
 import { sandpackFilesToCodeRecord } from "@/lib/sandpack-files-to-record"
 import { cn } from "@/lib/utils"
 import type { SandpackFiles } from "@codesandbox/sandpack-react"
@@ -138,6 +139,7 @@ export function PreviewLocalWorkspace({
   onPreviewSourcesPatched,
   onRuntimeQa,
 }: PreviewLocalWorkspaceProps) {
+  const { t } = useI18n()
   const lastPatchedDigestRef = useRef<string>("")
   const [copied, setCopied] = useState(false)
   const [srcDoc, setSrcDoc] = useState<string | null>(null)
@@ -275,19 +277,19 @@ export function PreviewLocalWorkspace({
           wrap: "w-full flex flex-col items-center justify-start min-h-0",
           frame:
             "w-[390px] max-w-[calc(100%-0.5rem)] shrink-0 rounded-[1.75rem] border-4 border-zinc-700 bg-zinc-900 shadow-xl overflow-hidden flex flex-col min-h-0 max-h-[min(844px,calc(100vh-12rem))]",
-          label: "~390×844 viewport (CSS width only)",
+          label: t("preview_device_mobile"),
         }
       : deviceSize === "tablet"
         ? {
             wrap: "w-full flex flex-col items-center justify-start min-h-0",
             frame:
               "w-[768px] max-w-[calc(100%-0.5rem)] shrink-0 rounded-xl border-2 border-zinc-700 bg-zinc-900/80 shadow-lg overflow-hidden flex flex-col min-h-0 max-h-[min(1024px,calc(100vh-10rem))]",
-            label: "~768px wide (tablet CSS viewport)",
+            label: t("preview_device_tablet"),
           }
         : {
             wrap: "w-full flex flex-col min-h-0",
             frame: "w-full max-w-full flex flex-col min-h-0 flex-1 rounded-lg border border-border/50 overflow-hidden",
-            label: "Full width (desktop)",
+            label: t("preview_device_desktop"),
           }
 
   return (
@@ -296,7 +298,7 @@ export function PreviewLocalWorkspace({
         {loading ? (
           <div className="flex items-center gap-2 text-foreground">
             <Loader2 className="size-3.5 animate-spin shrink-0" />
-            <span>Preparing your preview…</span>
+            <span>{t("preview_status_preparing")}</span>
           </div>
         ) : error ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -306,27 +308,27 @@ export function PreviewLocalWorkspace({
             </div>
             <Button type="button" variant="outline" size="sm" className="shrink-0 gap-1 h-7" onClick={handleRetry}>
               <RefreshCw className="size-3" />
-              Retry
+              {t("preview_action_retry")}
             </Button>
           </div>
         ) : runtimeStatus === "pending" ? (
           <div className="flex items-center gap-2 text-foreground">
             <Loader2 className="size-3.5 animate-spin shrink-0" />
-            <span>Checking if everything runs…</span>
+            <span>{t("preview_status_checking_runtime")}</span>
           </div>
         ) : runtimeStatus === "error" ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-2 text-destructive">
               <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
-              <span className="break-words">{runtimeError ?? "Runtime error (blank screen or console error)."}</span>
+              <span className="break-words">{runtimeError ?? t("preview_status_runtime_error")}</span>
             </div>
             <Button type="button" variant="outline" size="sm" className="shrink-0 gap-1 h-7" onClick={handleRetry}>
               <RefreshCw className="size-3" />
-              Retry
+              {t("preview_action_retry")}
             </Button>
           </div>
         ) : (
-          <div className="text-emerald-600 dark:text-emerald-400">Preview ready.</div>
+          <div className="text-emerald-600 dark:text-emerald-400">{t("preview_status_ready")}</div>
         )}
       </div>
 
@@ -351,14 +353,24 @@ export function PreviewLocalWorkspace({
                     <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/70 text-zinc-200">
                       <div className="flex items-center gap-2 text-sm">
                         <Loader2 className="size-4 animate-spin shrink-0" />
-                        <span>{error ? "Bundle failed." : runtimeStatus === "pending" ? "Checking runtime…" : "Runtime failed."}</span>
+                        <span>
+                          {error
+                            ? t("preview_overlay_bundle_failed")
+                            : runtimeStatus === "pending"
+                              ? t("preview_overlay_runtime_checking")
+                              : t("preview_overlay_runtime_failed")}
+                        </span>
                       </div>
                     </div>
                   ) : null}
                 </div>
               ) : (
                 <div className="flex-1 min-h-[200px] flex items-center justify-center text-sm text-muted-foreground">
-                  {loading ? "Bundling…" : error ? "Bundle failed." : "Waiting…"}
+                  {loading
+                    ? t("preview_status_bundling")
+                    : error
+                      ? t("preview_overlay_bundle_failed")
+                      : t("preview_status_waiting")}
                 </div>
               )}
             </div>
@@ -378,7 +390,7 @@ export function PreviewLocalWorkspace({
             </Tabs>
             <Button type="button" variant="ghost" size="sm" className="h-7 gap-1 ml-auto" onClick={() => void handleCopyActive()}>
               {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-              Copy
+              {t("preview_action_copy")}
             </Button>
           </div>
           <ScrollArea className="flex-1 min-h-0">

@@ -246,13 +246,13 @@ function GeneratingStatus({
       segRef.current = {
         stage,
         startTs: Date.now(),
-        startPct: Math.max(1, Math.min(99, displayPct)),
+        startPct: Math.max(1, Math.min(95, displayPct)),
         endPct: Math.max(1, Math.min(100, endPct)),
         etaMs: Math.max(300, etaMs),
       }
     } else {
       // If stage hasn't changed, allow endPct to drift upward a bit (prevents plateau).
-      segRef.current.endPct = Math.min(99, Math.max(segRef.current.endPct, endPct))
+      segRef.current.endPct = Math.min(95, Math.max(segRef.current.endPct, endPct))
     }
 
     let raf = 0
@@ -269,14 +269,14 @@ function GeneratingStatus({
 
         // After reaching the segment end, keep slowly creeping (up to +4%) while waiting.
         if (t >= 1 && prev >= s.endPct - 0.01) {
-          const creepMax = Math.min(99, s.endPct + 4)
+          const creepMax = Math.min(95, s.endPct + 4)
           const extra = elapsed - s.etaMs
           const creep = (creepMax - s.endPct) * (1 - Math.exp(-extra / 12000))
           next = s.endPct + creep
         }
 
         next = Math.max(prev, next)
-        next = Math.min(99, next)
+        next = Math.min(95, next)
         return Math.round(next)
       })
       raf = window.requestAnimationFrame(tick)
@@ -388,6 +388,7 @@ export function ChatPanel({
   onOpenIntegrations,
   onGenerateSuccess,
   hasGenerated,
+  canRefineExisting,
   refineFrom,
   currentApprovedPlan,
   currentClarifications,
@@ -399,6 +400,7 @@ export function ChatPanel({
   onOpenIntegrations: () => void
   onGenerateSuccess: (payload: ChatGenerateSuccess) => void
   hasGenerated: boolean
+  canRefineExisting?: boolean
   refineFrom?: { appTsx: string; extraFiles?: Record<string, string> } | null
   currentApprovedPlan?: PlanSnapshot
   currentClarifications?: { questionId: string; answer: string }[]
@@ -497,6 +499,19 @@ export function ChatPanel({
       themeVariantId,
     }),
     [supabaseConfigured, aiProvider, uiStyleKit, themeId, themeVariantId],
+  )
+
+  const buildActivitySeed = useCallback(
+    (kind: "generate" | "edit") => [
+      {
+        id: "codegen",
+        label: kind === "edit" ? t("chat_activity_codegen_changes") : t("chat_activity_codegen"),
+        status: "active" as const,
+      },
+      { id: "bundle", label: t("chat_activity_bundle"), status: "pending" as const },
+      { id: "runtime", label: t("chat_activity_runtime"), status: "pending" as const },
+    ],
+    [t],
   )
 
   const showBillingSummary = useCallback(
@@ -744,6 +759,7 @@ export function ChatPanel({
               m.id === opts.assistantMessageId
                 ? {
                     ...m,
+                    generatingStage: "codegen_parse",
                     activity: (m.activity ?? []).map((a) =>
                       a.id === "bundle" ? { ...a, status: "active" } : a,
                     ),
@@ -823,10 +839,7 @@ export function ChatPanel({
                         ...(m.activity ?? []),
                         {
                           id: `repair-${attempt + 1}`,
-                          label:
-                            lang === "zh-HK"
-                              ? `修復嘗試 ${attempt + 1}/${maxRepairAttempts + 1}`
-                              : `Repair attempt ${attempt + 1}/${maxRepairAttempts + 1}`,
+                          label: `${t("chat_activity_repair_attempt")} ${attempt + 1}/${maxRepairAttempts + 1}`,
                           status: "active",
                           detail: head,
                         },
@@ -885,7 +898,7 @@ export function ChatPanel({
 
       return cur
     },
-    [callGenerate, callPreviewBundle],
+    [callGenerate, callPreviewBundle, t],
   )
 
   const handleSubmit = async () => {
@@ -907,7 +920,7 @@ export function ChatPanel({
     const baseApprovedPlan = currentApprovedPlan
     const baseClarifications = currentClarifications
 
-    if (hasGenerated && !replan && !quickBuild && refineFrom?.appTsx?.trim()) {
+    if (Boolean(canRefineExisting) && !replan && !quickBuild && refineFrom?.appTsx?.trim()) {
       const assistantId = (Date.now() + 1).toString()
       setMessages((prev) => [
         ...prev,
@@ -919,11 +932,7 @@ export function ChatPanel({
           isGenerating: true,
           generatingLabel: "building",
           generatingStage: "codegen_request",
-          activity: [
-            { id: "codegen", label: lang === "zh-HK" ? "生成程式碼變更" : "Generating code changes", status: "active" },
-            { id: "bundle", label: lang === "zh-HK" ? "檢查預覽打包" : "Running bundle check", status: "pending" },
-            { id: "runtime", label: lang === "zh-HK" ? "檢查預覽執行" : "Running runtime check", status: "pending" },
-          ],
+          activity: buildActivitySeed("edit"),
         },
       ])
       try {
@@ -950,6 +959,8 @@ export function ChatPanel({
                       ? { ...a, status: "done" }
                       : a.id === "bundle"
                         ? { ...a, status: "done" }
+                        : a.id === "runtime"
+                          ? { ...a, status: "done" }
                         : a,
                   ),
                 }
@@ -1024,11 +1035,7 @@ export function ChatPanel({
           isGenerating: true,
           generatingLabel: "building",
           generatingStage: "codegen_request",
-          activity: [
-            { id: "codegen", label: lang === "zh-HK" ? "生成程式碼" : "Generating code", status: "active" },
-            { id: "bundle", label: lang === "zh-HK" ? "檢查預覽打包" : "Running bundle check", status: "pending" },
-            { id: "runtime", label: lang === "zh-HK" ? "檢查預覽執行" : "Running runtime check", status: "pending" },
-          ],
+          activity: buildActivitySeed("generate"),
         },
       ])
       const historyForApi = [...messages, userMessage]
@@ -1048,6 +1055,8 @@ export function ChatPanel({
                       ? { ...a, status: "done" }
                       : a.id === "bundle"
                         ? { ...a, status: "done" }
+                        : a.id === "runtime"
+                          ? { ...a, status: "done" }
                         : a,
                   ),
                 }
@@ -1176,6 +1185,7 @@ export function ChatPanel({
         isGenerating: true,
         generatingLabel: "building",
         generatingStage: "codegen_request",
+        activity: buildActivitySeed("generate"),
       },
     ])
 
@@ -1195,6 +1205,15 @@ export function ChatPanel({
           msg.id === assistantId
             ? {
                 ...msg,
+                activity: (msg.activity ?? []).map((a) =>
+                  a.id === "codegen"
+                    ? { ...a, status: "done" }
+                    : a.id === "bundle"
+                      ? { ...a, status: "done" }
+                      : a.id === "runtime"
+                        ? { ...a, status: "done" }
+                        : a,
+                ),
                 content: data.reply,
                 generatingStage: "done",
                 generatingLabel: msg.generatingLabel,
@@ -1364,6 +1383,7 @@ export function ChatPanel({
         isGenerating: true,
         generatingLabel: "building",
         generatingStage: "codegen_request",
+        activity: buildActivitySeed("generate"),
       },
     ])
     try {
@@ -1379,6 +1399,15 @@ export function ChatPanel({
           msg.id === assistantId
             ? {
                 ...msg,
+                activity: (msg.activity ?? []).map((a) =>
+                  a.id === "codegen"
+                    ? { ...a, status: "done" }
+                    : a.id === "bundle"
+                      ? { ...a, status: "done" }
+                      : a.id === "runtime"
+                        ? { ...a, status: "done" }
+                        : a,
+                ),
                 content: data.reply,
                 isGenerating: false,
                 generatingLabel: undefined,
@@ -1408,7 +1437,7 @@ export function ChatPanel({
     } finally {
       setIsLoading(false)
     }
-  }, [callGenerate, generateWithBundleGate, isLoading, onGenerateSuccess, refreshBalance])
+  }, [buildActivitySeed, callGenerate, generateWithBundleGate, isLoading, onGenerateSuccess, refreshBalance])
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -1576,7 +1605,7 @@ export function ChatPanel({
           <Label htmlFor="quick-build-footer" className="text-xs text-muted-foreground cursor-pointer">
             {t("chat_quick_build")}
           </Label>
-          {hasGenerated && !quickBuild ? (
+          {Boolean(canRefineExisting) && !quickBuild ? (
             <div className="flex items-center gap-2">
               <Switch id="replan-footer" checked={replan} onCheckedChange={setReplan} />
               <Label htmlFor="replan-footer" className="text-xs text-muted-foreground cursor-pointer">
@@ -1662,7 +1691,7 @@ export function ChatPanel({
             placeholder={
               quickBuild
                 ? t("chat_placeholder_quick")
-                : hasGenerated && !replan
+                : Boolean(canRefineExisting) && !replan
                   ? t("chat_placeholder_patch")
                   : t("chat_placeholder_plan")
             }
