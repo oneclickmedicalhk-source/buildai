@@ -92,6 +92,7 @@ export default function BuilderPage() {
     lastFilesKey: null,
     attempts: 0,
   })
+  const runtimeRepairInFlightRef = useRef<Set<string>>(new Set())
 
   const [persisted, setPersisted] = useState<BuilderPersistedState>(() => createEmptyPersistedState())
   const [modelFiles, setModelFiles] = useState<Record<string, string>>({})
@@ -315,6 +316,8 @@ export default function BuilderPage() {
         })
         return
       }
+      // Step 1) Guard duplicate repairs for the same preview payload.
+      if (runtimeRepairInFlightRef.current.has(args.filesKey)) return
       runtimeRepairRef.current.attempts += 1
 
       if (!accessToken) return
@@ -335,13 +338,20 @@ export default function BuilderPage() {
       toast.message("Auto-fixing runtime errors…", {
         description: "We’re repairing the preview so it actually runs before showing it as done.",
       })
+      runtimeRepairInFlightRef.current.add(args.filesKey)
+      let timeoutId: number | null = null
       try {
+        // Step 2) Bound repair request duration; timeout must fall back quickly.
+        const ac = new AbortController()
+        const timeoutMs = 15000
+        timeoutId = window.setTimeout(() => ac.abort(), timeoutMs)
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${accessToken}`,
           },
+          signal: ac.signal,
           body: JSON.stringify({
             messages: [
               {
@@ -373,7 +383,12 @@ export default function BuilderPage() {
           ...(data.changedFiles?.length ? { changedFiles: data.changedFiles } : {}),
         })
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Auto-repair failed"
+        const msg =
+          e instanceof DOMException && e.name === "AbortError"
+            ? "Auto-repair timed out"
+            : e instanceof Error
+              ? e.message
+              : "Auto-repair failed"
         toast.error(msg)
         handleGenerateSuccess({
           reply: `Preview runtime error (auto-repair failed): ${msg}`,
@@ -383,6 +398,9 @@ export default function BuilderPage() {
           ...(approvedPlan !== undefined ? { approvedPlan } : {}),
           ...(planClarifications?.length ? { planClarifications } : {}),
         })
+      } finally {
+        if (timeoutId != null) window.clearTimeout(timeoutId)
+        runtimeRepairInFlightRef.current.delete(args.filesKey)
       }
     },
     [

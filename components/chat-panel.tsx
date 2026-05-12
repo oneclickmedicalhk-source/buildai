@@ -98,6 +98,15 @@ type ResumePayload = {
   ts: number
 }
 
+type ApiBilling = {
+  phase: "plan" | "generate" | "edit" | "runtime_repair"
+  preauthUsd: number
+  chargedUsd: number
+  uncappedChargedUsd: number
+  firstBuildDiscountUsd?: number
+  firstBuildCapApplied?: boolean
+}
+
 const RESUME_STORAGE_KEY = "buildai-resume-payload"
 
 function safeReadResumePayload(): ResumePayload | null {
@@ -490,6 +499,48 @@ export function ChatPanel({
     [supabaseConfigured, aiProvider, uiStyleKit, themeId, themeVariantId],
   )
 
+  const showBillingSummary = useCallback(
+    (billing?: ApiBilling) => {
+      if (!billing) return
+      const title = lang === "zh-HK" ? "本次扣費（USD）" : "This request charge (USD)"
+      const capNote =
+        billing.chargedUsd < billing.uncappedChargedUsd
+          ? lang === "zh-HK"
+            ? "（已套用單次上限）"
+            : "(per-call cap applied)"
+          : ""
+      const discountNote =
+        (billing.firstBuildDiscountUsd ?? 0) > 0
+          ? lang === "zh-HK"
+            ? `；首次建置減免 -$${billing.firstBuildDiscountUsd?.toFixed(2)}`
+            : `; first-build discount -$${billing.firstBuildDiscountUsd?.toFixed(2)}`
+          : ""
+      const phaseLabel = billing.phase === "plan" ? "plan" : billing.phase
+      const description =
+        (lang === "zh-HK" ? "階段" : "Phase") +
+        `: ${phaseLabel} · ` +
+        (lang === "zh-HK" ? "預估" : "Estimated") +
+        `: $${billing.preauthUsd.toFixed(2)} · ` +
+        (lang === "zh-HK" ? "實扣" : "Charged") +
+        `: $${billing.chargedUsd.toFixed(2)} ${capNote}${discountNote}`
+      try {
+        localStorage.setItem(
+          "buildai-last-billing-summary",
+          JSON.stringify({
+            phase: billing.phase,
+            preauthUsd: billing.preauthUsd,
+            chargedUsd: billing.chargedUsd,
+            ts: Date.now(),
+          }),
+        )
+      } catch {
+        /* ignore storage write issues */
+      }
+      toast.message(title, { description })
+    },
+    [lang],
+  )
+
   const callPlan = async (
     history: Message[],
     opts?: { clarifications?: { questionId: string; answer: string }[] },
@@ -521,11 +572,31 @@ export function ChatPanel({
         m.id === id ? { ...m, generatingStage: "planning_parse" } : m,
       )
     })
-    const data = (await res.json()) as PlanResponse & { error?: string; code?: string }
+    const data = (await res.json()) as PlanResponse & {
+      error?: string
+      code?: string
+      neededUsd?: number
+      balanceUsd?: number
+      shortageUsd?: number
+      firstBuildEligible?: boolean
+    }
     if (!res.ok) {
-      if (res.status === 402 || data.code === "INSUFFICIENT_CREDITS") setTopupOpen(true)
+      if (res.status === 402 || data.code === "INSUFFICIENT_CREDITS") {
+        const short = typeof data.shortageUsd === "number" ? data.shortageUsd : undefined
+        const needed = typeof data.neededUsd === "number" ? data.neededUsd : undefined
+        const balance = typeof data.balanceUsd === "number" ? data.balanceUsd : undefined
+        const details =
+          short != null && needed != null && balance != null
+            ? lang === "zh-HK"
+              ? `尚欠 $${short.toFixed(2)}（需要 $${needed.toFixed(2)}，目前 $${balance.toFixed(2)}）。`
+              : `Short by $${short.toFixed(2)} (need $${needed.toFixed(2)}, balance $${balance.toFixed(2)}).`
+            : data.error ?? "Planning failed"
+        toast.error(details)
+        setTopupOpen(true)
+      }
       throw new Error(data.error ?? "Planning failed")
     }
+    showBillingSummary(data.billing)
     void refreshBalance()
     return data as PlanResponse
   }
@@ -573,7 +644,14 @@ export function ChatPanel({
         m.id === last.id ? { ...m, generatingStage: "codegen_parse" } : m,
       )
     })
-    const data = (await res.json()) as GenerateResponse & { error?: string; code?: string }
+    const data = (await res.json()) as GenerateResponse & {
+      error?: string
+      code?: string
+      neededUsd?: number
+      balanceUsd?: number
+      shortageUsd?: number
+      firstBuildEligible?: boolean
+    }
     if (!res.ok) {
       const errText = data.error ?? ""
       const patchApplyFailed =
@@ -598,6 +676,16 @@ export function ChatPanel({
         )
       }
       if (res.status === 402 || data.code === "INSUFFICIENT_CREDITS") {
+        const short = typeof data.shortageUsd === "number" ? data.shortageUsd : undefined
+        const needed = typeof data.neededUsd === "number" ? data.neededUsd : undefined
+        const balance = typeof data.balanceUsd === "number" ? data.balanceUsd : undefined
+        const details =
+          short != null && needed != null && balance != null
+            ? lang === "zh-HK"
+              ? `尚欠 $${short.toFixed(2)}（需要 $${needed.toFixed(2)}，目前 $${balance.toFixed(2)}）。`
+              : `Short by $${short.toFixed(2)} (need $${needed.toFixed(2)}, balance $${balance.toFixed(2)}).`
+            : data.error ?? "Generation failed"
+        toast.error(details)
         const kind: ResumePayload["kind"] =
           opts?.refineKind === "edit" || opts?.editOutput === "patch"
             ? "patch_edit"
@@ -620,6 +708,7 @@ export function ChatPanel({
       }
       throw new Error(data.error ?? "Generation failed")
     }
+    showBillingSummary(data.billing)
     return data as GenerateResponse
   }
 

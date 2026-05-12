@@ -10,9 +10,9 @@ import type { SandpackFiles } from "@codesandbox/sandpack-react"
 import { AlertTriangle, Check, Copy, Loader2, RefreshCw } from "lucide-react"
 
 type PreviewRuntimeMessage =
-  | { type: "buildai_runtime_ok" }
-  | { type: "buildai_runtime_error"; message: string }
-  | { type: "buildai_runtime_blank"; message: string }
+  | { type: "buildai_runtime_ok"; runtimeKey: string }
+  | { type: "buildai_runtime_error"; runtimeKey: string; message: string }
+  | { type: "buildai_runtime_blank"; runtimeKey: string; message: string }
 
 function escapeSrcDocScript(js: string): string {
   return js.replace(/<\/script>/gi, "<\\/script>")
@@ -22,7 +22,7 @@ function escapeSrcDocStyle(css: string): string {
   return css.replace(/<\/style>/gi, "<\\/style>")
 }
 
-function buildPreviewSrcDoc(js: string, css: string): string {
+function buildPreviewSrcDoc(js: string, css: string, runtimeKey: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -34,9 +34,10 @@ function buildPreviewSrcDoc(js: string, css: string): string {
 <div id="root"></div>
 <script>
 (() => {
+  const runtimeKey = ${JSON.stringify(runtimeKey)};
   const post = (payload) => {
     try {
-      window.parent && window.parent.postMessage(payload, "*");
+      window.parent && window.parent.postMessage({ ...payload, runtimeKey }, "*");
     } catch {}
   };
 
@@ -144,6 +145,7 @@ export function PreviewLocalWorkspace({
   const [error, setError] = useState<string | null>(null)
   const [runtimeStatus, setRuntimeStatus] = useState<"pending" | "ok" | "error">("pending")
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
+  const [runtimeKey, setRuntimeKey] = useState<string>("")
   const [retrySeq, setRetrySeq] = useState(0)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
@@ -193,7 +195,10 @@ export function PreviewLocalWorkspace({
             onPreviewSourcesPatched?.(data.patchedFiles)
           }
         }
-        setSrcDoc(buildPreviewSrcDoc(data.js, data.css))
+        // Unique runtime key isolates messages from previous iframes.
+        const nextRuntimeKey = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        setRuntimeKey(nextRuntimeKey)
+        setSrcDoc(buildPreviewSrcDoc(data.js, data.css, nextRuntimeKey))
       } catch (e) {
         if (ac.signal.aborted) return
         setError(e instanceof Error ? e.message : String(e))
@@ -213,11 +218,13 @@ export function PreviewLocalWorkspace({
       const data = ev.data as PreviewRuntimeMessage | unknown
       if (!data || typeof data !== "object") return
       if (!("type" in data)) return
+      if (!("runtimeKey" in data)) return
 
       // Best-effort: ensure it comes from the current iframe
       if (iframeRef.current && ev.source !== iframeRef.current.contentWindow) return
 
       const msg = data as PreviewRuntimeMessage
+      if (msg.runtimeKey !== runtimeKey) return
       if (msg.type === "buildai_runtime_ok") {
         setRuntimeStatus("ok")
         setRuntimeError(null)
@@ -231,7 +238,20 @@ export function PreviewLocalWorkspace({
 
     window.addEventListener("message", onMsg)
     return () => window.removeEventListener("message", onMsg)
-  }, [srcDoc, sandpackMountKey, filesKey, onRuntimeQa])
+  }, [srcDoc, sandpackMountKey, filesKey, onRuntimeQa, runtimeKey])
+
+  useEffect(() => {
+    if (!srcDoc) return
+    if (runtimeStatus !== "pending") return
+    // Watchdog avoids "Checking runtime..." stalls if no iframe message arrives.
+    const timer = window.setTimeout(() => {
+      const msg = "Runtime check timed out: no signal from preview iframe."
+      setRuntimeStatus("error")
+      setRuntimeError(msg)
+      onRuntimeQa?.({ status: "error", message: msg, filesKey })
+    }, 5500)
+    return () => window.clearTimeout(timer)
+  }, [srcDoc, runtimeStatus, onRuntimeQa, filesKey])
 
   const handleRetry = useCallback(() => {
     setRetrySeq((n) => n + 1)

@@ -50,6 +50,16 @@ export const generateResponseSchema = z.object({
   extraFiles: z.record(z.string()).optional(),
   /** Optional list of files changed (useful for UI summaries). */
   changedFiles: z.array(z.string()).optional(),
+  billing: z
+    .object({
+      phase: z.enum(["plan", "generate", "edit", "runtime_repair"]),
+      preauthUsd: z.number(),
+      chargedUsd: z.number(),
+      uncappedChargedUsd: z.number(),
+      firstBuildDiscountUsd: z.number().optional(),
+      firstBuildCapApplied: z.boolean().optional(),
+    })
+    .optional(),
 })
 
 export type GenerateResponse = z.infer<typeof generateResponseSchema>

@@ -22,7 +22,7 @@ import {
   insertUsageEvent,
   maybeGrantFreeMonthlyCredits,
 } from "@/lib/service/credits"
-import { estimatePreauthChargeUsd, estimateUsageAndCharge } from "@/lib/service/usage-meter"
+import { estimatePreauthChargeUsd, estimateUsageAndCharge, type UsagePhase } from "@/lib/service/usage-meter"
 
 function buildUserDelimitedContent(content: string): string {
   return `User message (delimited):\n<<<USER>>>\n${content}\n<<<END>>>`
@@ -62,20 +62,32 @@ export async function POST(req: Request) {
         ? "Important: Output MUST be Traditional Chinese (Hong Kong). This includes reply, plan.summary, assumptions, openQuestions.question, suggestedAnswers, options labels, buildTodos, and designNotes."
         : "Important: Output MUST be English."
 
-    // Pre-auth: block if balance is clearly insufficient (conservative estimate).
+    // Step 1) Pre-auth uses a phase budget so planning feels predictable.
+    const phase: UsagePhase = "plan"
+    const assumedOutputTokens = body.clarifications?.length ? 1400 : 900
     const bal = await getUserCreditBalanceUsd(userId)
     const preauth = estimatePreauthChargeUsd({
       aiProviderChoice: body.flags?.aiProvider,
       inputText: `${langHint}\n\n${systemJsonHint}\n\n${lastUser}`,
-      assumedOutputTokens: 1000,
+      assumedOutputTokens,
       markupMin: 5,
+      phase,
     })
     // Don’t block too aggressively: pre-auth is just a safety check.
     const minRequired = 1
     const firstBuild = await canUseFreeFirstBuildWaiver(userId)
     if (bal.balanceUsd < Math.min(preauth, minRequired) && !firstBuild) {
+      const shortageUsd = Math.max(0, Math.round((preauth - bal.balanceUsd) * 100) / 100)
       return NextResponse.json(
-        { error: "Insufficient credits", code: "INSUFFICIENT_CREDITS", neededUsd: preauth, balanceUsd: bal.balanceUsd },
+        {
+          error: `Insufficient credits (short by $${shortageUsd.toFixed(2)} USD for this ${phase} request).`,
+          code: "INSUFFICIENT_CREDITS",
+          neededUsd: preauth,
+          balanceUsd: bal.balanceUsd,
+          shortageUsd,
+          phase,
+          firstBuildEligible: firstBuild,
+        },
         { status: 402 },
       )
     }
@@ -168,6 +180,7 @@ export async function POST(req: Request) {
       outputText: JSON.stringify(normalized),
       markupMin: 5,
       modelLabel: provider,
+      phase,
     })
     await insertUsageEvent({
       userId,
@@ -177,7 +190,13 @@ export async function POST(req: Request) {
       outputTokens: usage.outputTokens,
       costUsd: usage.costUsd,
       chargedUsd: usage.chargedUsd,
-      meta: { kind: "plan" },
+      meta: {
+        kind: "plan",
+        phase,
+        preauthUsd: preauth,
+        uncappedChargedUsd: usage.uncappedChargedUsd,
+        maxChargePerCallUsd: usage.maxChargePerCallUsd,
+      },
     })
     const capped = firstBuild
       ? await applyFreeFirstBuildCap({ userId, phase: "plan", chargedUsd: usage.chargedUsd, capUsd: 3 })
@@ -188,11 +207,38 @@ export async function POST(req: Request) {
       totalChargeUsd: capped.finalChargedUsd,
       splitUsd: 1,
       meta: firstBuild
-        ? { kind: "first_build", month: currentMonthKeyUtc(), phase: "plan", provider: usage.provider, model: usage.model }
-        : { kind: "plan", provider: usage.provider, model: usage.model },
+        ? {
+            kind: "first_build",
+            month: currentMonthKeyUtc(),
+            phase: "plan",
+            provider: usage.provider,
+            model: usage.model,
+            preauthUsd: preauth,
+            uncappedChargedUsd: usage.uncappedChargedUsd,
+            chargedUsd: capped.finalChargedUsd,
+          }
+        : {
+            kind: "plan",
+            phase: "plan",
+            provider: usage.provider,
+            model: usage.model,
+            preauthUsd: preauth,
+            uncappedChargedUsd: usage.uncappedChargedUsd,
+            chargedUsd: capped.finalChargedUsd,
+          },
     })
 
-    return NextResponse.json(normalized)
+    return NextResponse.json({
+      ...normalized,
+      billing: {
+        phase,
+        preauthUsd: preauth,
+        chargedUsd: capped.finalChargedUsd,
+        uncappedChargedUsd: usage.uncappedChargedUsd,
+        firstBuildDiscountUsd: capped.discountUsd,
+        firstBuildCapApplied: capped.discountUsd > 0,
+      },
+    })
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error"
     const isConfig =

@@ -55,6 +55,16 @@ export type PlanSnapshot = z.infer<typeof planSnapshotSchema>
 export const planResponseSchema = z.object({
   reply: z.string().min(1),
   plan: planSnapshotSchema,
+  billing: z
+    .object({
+      phase: z.enum(["plan", "generate", "edit", "runtime_repair"]),
+      preauthUsd: z.number(),
+      chargedUsd: z.number(),
+      uncappedChargedUsd: z.number(),
+      firstBuildDiscountUsd: z.number().optional(),
+      firstBuildCapApplied: z.boolean().optional(),
+    })
+    .optional(),
 })
 
 export type PlanResponse = z.infer<typeof planResponseSchema>

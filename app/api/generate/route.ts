@@ -29,7 +29,7 @@ import {
   insertUsageEvent,
   maybeGrantFreeMonthlyCredits,
 } from "@/lib/service/credits"
-import { estimatePreauthChargeUsd, estimateUsageAndCharge } from "@/lib/service/usage-meter"
+import { estimatePreauthChargeUsd, estimateUsageAndCharge, type UsagePhase } from "@/lib/service/usage-meter"
 
 const modelOutputSchema = z.object({
   reply: z.string(),
@@ -103,25 +103,48 @@ export async function POST(req: Request) {
     const outboundMessages = buildOutboundMessages(body)
     const lastUser = [...outboundMessages].reverse().find((m) => m.role === "user")?.content ?? ""
 
-    const patchMode =
+    const patchModeRequested =
       body.refineFrom != null &&
       (body.refineKind ?? "polish") === "edit" &&
       (body.editOutput ?? "auto") === "patch"
+    const refineBytes =
+      (body.refineFrom?.appTsx.length ?? 0) +
+      Object.values(body.refineFrom?.extraFiles ?? {}).reduce((sum, s) => sum + s.length, 0)
+    const extraFilesCount = Object.keys(body.refineFrom?.extraFiles ?? {}).length
+    const promptHighChurn = /\b(rebuild|rewrite|overhaul|refactor|restructure|revamp)\b/i.test(lastUser)
+    // Avoid fragile patch mode when source context is large or churn request is broad.
+    const patchMode =
+      patchModeRequested &&
+      refineBytes <= 10_000 &&
+      extraFilesCount <= 10 &&
+      !promptHighChurn
+    const phase: UsagePhase = body.refineFrom ? "edit" : "generate"
+    const assumedOutputTokens = body.refineFrom ? (patchMode ? 1100 : 1600) : 2200
 
-    // Pre-auth: conservative estimate. Generate is more expensive than plan.
+    // Step 1) Phase-aware pre-auth keeps checks realistic for edit vs full generate.
     const bal = await getUserCreditBalanceUsd(userId)
     const preauth = estimatePreauthChargeUsd({
       aiProviderChoice: body.flags?.aiProvider,
       inputText: `${lastUser}`,
-      assumedOutputTokens: 2200,
+      assumedOutputTokens,
       markupMin: 5,
+      phase,
     })
     // Don’t block too aggressively: pre-auth is just a safety check.
     const minRequired = 1
     const firstBuild = await canUseFreeFirstBuildWaiver(userId)
     if (bal.balanceUsd < Math.min(preauth, minRequired) && !firstBuild) {
+      const shortageUsd = Math.max(0, Math.round((preauth - bal.balanceUsd) * 100) / 100)
       return NextResponse.json(
-        { error: "Insufficient credits", code: "INSUFFICIENT_CREDITS", neededUsd: preauth, balanceUsd: bal.balanceUsd },
+        {
+          error: `Insufficient credits (short by $${shortageUsd.toFixed(2)} USD for this ${phase} request).`,
+          code: "INSUFFICIENT_CREDITS",
+          neededUsd: preauth,
+          balanceUsd: bal.balanceUsd,
+          shortageUsd,
+          phase,
+          firstBuildEligible: firstBuild,
+        },
         { status: 402 },
       )
     }
@@ -278,6 +301,7 @@ export async function POST(req: Request) {
         outputText: JSON.stringify(normalized),
         markupMin: 5,
         modelLabel: provider,
+        phase,
       })
       await insertUsageEvent({
         userId,
@@ -287,7 +311,15 @@ export async function POST(req: Request) {
         outputTokens: usage.outputTokens,
         costUsd: usage.costUsd,
         chargedUsd: usage.chargedUsd,
-        meta: { kind: "generate", patchMode: true },
+        meta: {
+          kind: "generate",
+          phase,
+          patchMode: true,
+          patchModeRequested,
+          preauthUsd: preauth,
+          uncappedChargedUsd: usage.uncappedChargedUsd,
+          maxChargePerCallUsd: usage.maxChargePerCallUsd,
+        },
       })
       const capped = firstBuild
         ? await applyFreeFirstBuildCap({ userId, phase: "generate", chargedUsd: usage.chargedUsd, capUsd: 3 })
@@ -298,11 +330,40 @@ export async function POST(req: Request) {
         totalChargeUsd: capped.finalChargedUsd,
         splitUsd: 1,
         meta: firstBuild
-          ? { kind: "first_build", month: currentMonthKeyUtc(), phase: "generate", provider: usage.provider, model: usage.model }
-          : { kind: "generate", provider: usage.provider, model: usage.model },
+          ? {
+              kind: "first_build",
+              month: currentMonthKeyUtc(),
+              phase,
+              provider: usage.provider,
+              model: usage.model,
+              patchModeRequested,
+              preauthUsd: preauth,
+              uncappedChargedUsd: usage.uncappedChargedUsd,
+              chargedUsd: capped.finalChargedUsd,
+            }
+          : {
+              kind: "generate",
+              phase,
+              provider: usage.provider,
+              model: usage.model,
+              patchModeRequested,
+              preauthUsd: preauth,
+              uncappedChargedUsd: usage.uncappedChargedUsd,
+              chargedUsd: capped.finalChargedUsd,
+            },
       })
 
-      return NextResponse.json(normalized)
+      return NextResponse.json({
+        ...normalized,
+        billing: {
+          phase,
+          preauthUsd: preauth,
+          chargedUsd: capped.finalChargedUsd,
+          uncappedChargedUsd: usage.uncappedChargedUsd,
+          firstBuildDiscountUsd: capped.discountUsd,
+          firstBuildCapApplied: capped.discountUsd > 0,
+        },
+      })
     }
 
     const full = parsed as z.infer<typeof modelOutputSchema>
@@ -320,6 +381,7 @@ export async function POST(req: Request) {
       outputText: JSON.stringify(normalized),
       markupMin: 5,
       modelLabel: provider,
+      phase,
     })
     await insertUsageEvent({
       userId,
@@ -329,7 +391,15 @@ export async function POST(req: Request) {
       outputTokens: usage.outputTokens,
       costUsd: usage.costUsd,
       chargedUsd: usage.chargedUsd,
-      meta: { kind: "generate", patchMode: false },
+      meta: {
+        kind: "generate",
+        phase,
+        patchMode: false,
+        patchModeRequested,
+        preauthUsd: preauth,
+        uncappedChargedUsd: usage.uncappedChargedUsd,
+        maxChargePerCallUsd: usage.maxChargePerCallUsd,
+      },
     })
     const capped = firstBuild
       ? await applyFreeFirstBuildCap({ userId, phase: "generate", chargedUsd: usage.chargedUsd, capUsd: 3 })
@@ -340,11 +410,40 @@ export async function POST(req: Request) {
       totalChargeUsd: capped.finalChargedUsd,
       splitUsd: 1,
       meta: firstBuild
-        ? { kind: "first_build", month: currentMonthKeyUtc(), phase: "generate", provider: usage.provider, model: usage.model }
-        : { kind: "generate", provider: usage.provider, model: usage.model },
+        ? {
+            kind: "first_build",
+            month: currentMonthKeyUtc(),
+            phase,
+            provider: usage.provider,
+            model: usage.model,
+            patchModeRequested,
+            preauthUsd: preauth,
+            uncappedChargedUsd: usage.uncappedChargedUsd,
+            chargedUsd: capped.finalChargedUsd,
+          }
+        : {
+            kind: "generate",
+            phase,
+            provider: usage.provider,
+            model: usage.model,
+            patchModeRequested,
+            preauthUsd: preauth,
+            uncappedChargedUsd: usage.uncappedChargedUsd,
+            chargedUsd: capped.finalChargedUsd,
+          },
     })
 
-    return NextResponse.json(normalized)
+    return NextResponse.json({
+      ...normalized,
+      billing: {
+        phase,
+        preauthUsd: preauth,
+        chargedUsd: capped.finalChargedUsd,
+        uncappedChargedUsd: usage.uncappedChargedUsd,
+        firstBuildDiscountUsd: capped.discountUsd,
+        firstBuildCapApplied: capped.discountUsd > 0,
+      },
+    })
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error"
     const isConfig =

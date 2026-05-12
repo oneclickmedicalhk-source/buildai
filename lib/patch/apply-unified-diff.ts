@@ -125,9 +125,54 @@ function joinLines(lines: string[], endsWithNewline: boolean): string {
   return out
 }
 
-function applyHunkToLines(base: string[], hunk: UnifiedDiffHunk): string[] {
-  // oldStart is 1-based. For safety, clamp within range.
-  let idx = Math.max(0, hunk.oldStart - 1)
+function linesEqual(a: string, b: string): boolean {
+  // Model-generated diffs often drift on trailing spaces only.
+  return a === b || a.trimEnd() === b.trimEnd()
+}
+
+function hunkAnchorLines(hunk: UnifiedDiffHunk): string[] {
+  return hunk.lines
+    .filter((l) => l.startsWith(" ") || l.startsWith("-"))
+    .map((l) => l.slice(1))
+}
+
+function locateHunkStartByAnchor(base: string[], hunk: UnifiedDiffHunk, fallbackIdx: number): number {
+  const anchor = hunkAnchorLines(hunk)
+  if (!anchor.length) return fallbackIdx
+  const maxStart = Math.max(0, base.length - 1)
+  const candidates = new Set<number>([fallbackIdx])
+
+  // Strategy 1: full contiguous anchor match (best quality signal).
+  const fullMax = Math.max(0, base.length - anchor.length)
+  for (let s = 0; s <= fullMax; s++) {
+    let ok = true
+    for (let i = 0; i < anchor.length; i++) {
+      if (!linesEqual(base[s + i] ?? "", anchor[i])) {
+        ok = false
+        break
+      }
+    }
+    if (ok) candidates.add(s)
+  }
+
+  // Strategy 2: single-line anchor fallbacks for offset-heavy edits.
+  const first = anchor[0]
+  const last = anchor[anchor.length - 1]
+  for (let i = 0; i <= maxStart; i++) {
+    if (linesEqual(base[i] ?? "", first)) candidates.add(i)
+    if (linesEqual(base[i] ?? "", last)) candidates.add(Math.max(0, i - anchor.length + 1))
+  }
+
+  const ordered = [...candidates]
+    .filter((n) => Number.isFinite(n))
+    .map((n) => Math.max(0, Math.min(maxStart, n)))
+    .sort((a, b) => Math.abs(a - fallbackIdx) - Math.abs(b - fallbackIdx))
+
+  return ordered[0] ?? fallbackIdx
+}
+
+function applyHunkAtIndex(base: string[], hunk: UnifiedDiffHunk, startIdx: number): string[] {
+  let idx = Math.max(0, startIdx)
   const out: string[] = []
   out.push(...base.slice(0, idx))
 
@@ -136,7 +181,7 @@ function applyHunkToLines(base: string[], hunk: UnifiedDiffHunk): string[] {
     const text = l.slice(1)
     if (kind === " ") {
       const cur = base[idx] ?? ""
-      if (cur !== text) {
+      if (!linesEqual(cur, text)) {
         throw new Error(
           `Patch context mismatch at line ${idx + 1}: expected ${JSON.stringify(text)} got ${JSON.stringify(cur)}`,
         )
@@ -145,7 +190,7 @@ function applyHunkToLines(base: string[], hunk: UnifiedDiffHunk): string[] {
       idx++
     } else if (kind === "-") {
       const cur = base[idx] ?? ""
-      if (cur !== text) {
+      if (!linesEqual(cur, text)) {
         throw new Error(
           `Patch delete mismatch at line ${idx + 1}: expected ${JSON.stringify(text)} got ${JSON.stringify(cur)}`,
         )
@@ -168,6 +213,38 @@ function applyHunkToLines(base: string[], hunk: UnifiedDiffHunk): string[] {
 
   out.push(...base.slice(idx))
   return out
+}
+
+function applyHunkToLines(base: string[], hunk: UnifiedDiffHunk): string[] {
+  // oldStart is 1-based.
+  const expectedIdx = Math.max(0, hunk.oldStart - 1)
+  const firstErr: unknown[] = []
+  const starts = new Set<number>([expectedIdx, locateHunkStartByAnchor(base, hunk, expectedIdx)])
+  const ordered = [...starts].sort((a, b) => Math.abs(a - expectedIdx) - Math.abs(b - expectedIdx))
+  for (const startIdx of ordered) {
+    try {
+      return applyHunkAtIndex(base, hunk, startIdx)
+    } catch (e) {
+      firstErr.push(e)
+    }
+  }
+
+  // Last attempt: probe local area around expected index.
+  const window = 60
+  for (let s = Math.max(0, expectedIdx - window); s <= Math.min(base.length, expectedIdx + window); s++) {
+    if (starts.has(s)) continue
+    try {
+      return applyHunkAtIndex(base, hunk, s)
+    } catch {
+      // keep probing
+    }
+  }
+
+  try {
+    return applyHunkAtIndex(base, hunk, expectedIdx)
+  } catch {
+    throw (firstErr[0] as Error) ?? new Error("Failed to apply hunk")
+  }
 }
 
 export type ApplyUnifiedDiffResult = {

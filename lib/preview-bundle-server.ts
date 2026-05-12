@@ -6,7 +6,7 @@ import fs from "fs/promises"
 import fsSync from "fs"
 import os from "os"
 import path from "path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { createRequire } from "node:module"
 import * as esbuild from "esbuild"
 import postcss from "postcss"
@@ -21,9 +21,28 @@ import {
   applyEsbuildStrayAfterCloseTagFixes,
 } from "@/lib/fix-jsx-text-comparisons"
 
-function resolveNodeModulesRoot(): string | null {
+function findNearestPackageRoot(startDir: string): string | null {
+  let cur = path.resolve(startDir)
+  for (let i = 0; i < 20; i++) {
+    if (fsSync.existsSync(path.join(cur, "package.json"))) return cur
+    const up = path.dirname(cur)
+    if (up === cur) break
+    cur = up
+  }
+  return null
+}
+
+function resolveProjectRoot(): string {
+  const fromCwd = findNearestPackageRoot(process.cwd())
+  if (fromCwd) return fromCwd
+  const fromModule = findNearestPackageRoot(path.dirname(fileURLToPath(import.meta.url)))
+  if (fromModule) return fromModule
+  return process.cwd()
+}
+
+function resolveNodeModulesRoot(projectRoot: string): string | null {
   try {
-    const require = createRequire(import.meta.url)
+    const require = createRequire(path.join(projectRoot, "package.json"))
     const reactPkg = require.resolve("react/package.json")
     // .../node_modules/react/package.json -> .../node_modules
     return path.dirname(path.dirname(reactPkg))
@@ -33,8 +52,8 @@ function resolveNodeModulesRoot(): string | null {
 }
 
 /** `createRequire` must anchor to a real file — `node_modules/package.json` usually does not exist. */
-function createRequireForProjectPackages(): ReturnType<typeof createRequire> {
-  const rootPkg = path.join(process.cwd(), "package.json")
+function createRequireForProjectPackages(projectRoot: string): ReturnType<typeof createRequire> {
+  const rootPkg = path.join(projectRoot, "package.json")
   if (fsSync.existsSync(rootPkg)) {
     return createRequire(rootPkg)
   }
@@ -46,7 +65,8 @@ function createRequireForProjectPackages(): ReturnType<typeof createRequire> {
  * working directory. Resolve react's entry files to absolute paths under node_modulesRoot.
  */
 function createReactAbsoluteResolvePlugin(_nodeModulesRoot: string): esbuild.Plugin {
-  const reqProject = createRequireForProjectPackages()
+  const projectRoot = resolveProjectRoot()
+  const reqProject = createRequireForProjectPackages(projectRoot)
   const reqMeta = createRequire(import.meta.url)
 
   function resolveBare(id: string): string | null {
@@ -176,7 +196,8 @@ export async function buildPreviewBundle(
     const previewCssPath = path.join(tmpDir, "preview.css")
     // PostCSS resolves bare "tailwindcss" from the temp dir (no node_modules there).
     // Point at the project install explicitly.
-    const tailwindIndex = path.join(process.cwd(), "node_modules", "tailwindcss", "index.css")
+    const projectRoot = resolveProjectRoot()
+    const tailwindIndex = path.join(projectRoot, "node_modules", "tailwindcss", "index.css")
     const tailwindImportUrl = pathToFileURL(tailwindIndex).href
     const cssInput =
       `@import "${tailwindImportUrl}";\n` +
@@ -223,8 +244,8 @@ if (el) {
 
     // In serverless (e.g. Vercel), process.cwd() may not contain node_modules at runtime.
     // Use require.resolve to find the real install path.
-    const resolvedNodeModules = resolveNodeModulesRoot()
-    const fallbackNodeModules = path.join(process.cwd(), "node_modules")
+    const resolvedNodeModules = resolveNodeModulesRoot(projectRoot)
+    const fallbackNodeModules = path.join(projectRoot, "node_modules")
     const nodeModulesRoot = resolvedNodeModules ?? fallbackNodeModules
     const reactAbsPlugin = createReactAbsoluteResolvePlugin(nodeModulesRoot)
 
@@ -238,7 +259,7 @@ if (el) {
           // can be resolved from the deployed function's dependencies.
           // If we keep absWorkingDir as the tmp dir, esbuild walks up from /tmp and will never
           // find node_modules in serverless environments.
-          absWorkingDir: process.cwd(),
+          absWorkingDir: projectRoot,
           entryPoints: [entryPath],
           bundle: true,
           write: false,
@@ -246,13 +267,17 @@ if (el) {
           platform: "browser",
           jsx: "automatic",
           target: ["es2020"],
+          // Models sometimes put JSX in `.ts`; parse as TSX for preview resilience.
+          loader: {
+            ".ts": "tsx",
+          },
           define: {
             "process.env.NODE_ENV": JSON.stringify("production"),
           },
           logLevel: "silent",
           treeShaking: true,
           mainFields: ["module", "browser", "main"],
-          nodePaths: [nodeModulesRoot],
+          nodePaths: [nodeModulesRoot, fallbackNodeModules],
           plugins: [stripCssImports, reactAbsPlugin],
         })
 

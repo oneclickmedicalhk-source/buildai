@@ -28,10 +28,47 @@ export function Header() {
   const { signOut, balanceUsd, refreshBalance } = useAuth()
   const { theme, setTheme } = useTheme()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [lastBilling, setLastBilling] = useState<{
+    phase: string
+    preauthUsd: number
+    chargedUsd: number
+    ts: number
+  } | null>(null)
 
   useEffect(() => {
     if (!menuOpen) return
     void refreshBalance()
+    try {
+      const raw = localStorage.getItem("buildai-last-billing-summary")
+      if (!raw) {
+        setLastBilling(null)
+        return
+      }
+      const parsed = JSON.parse(raw) as {
+        phase?: string
+        preauthUsd?: number
+        chargedUsd?: number
+        ts?: number
+      }
+      if (
+        parsed &&
+        typeof parsed.phase === "string" &&
+        typeof parsed.preauthUsd === "number" &&
+        typeof parsed.chargedUsd === "number" &&
+        typeof parsed.ts === "number"
+      ) {
+        setLastBilling({
+          phase: parsed.phase,
+          preauthUsd: parsed.preauthUsd,
+          chargedUsd: parsed.chargedUsd,
+          ts: parsed.ts,
+        })
+      } else {
+        setLastBilling(null)
+      }
+    } catch {
+      setLastBilling(null)
+    }
   }, [menuOpen, refreshBalance])
 
   return (
@@ -149,6 +186,19 @@ export function Header() {
                 </span>
               </div>
             </DropdownMenuItem>
+            {lastBilling ? (
+              <DropdownMenuItem disabled className="opacity-100">
+                <div className="w-full text-xs leading-5 text-muted-foreground">
+                  <div>
+                    {lang === "zh-HK" ? "最近一次（USD）" : "Last request (USD)"} · {lastBilling.phase}
+                  </div>
+                  <div>
+                    {lang === "zh-HK" ? "預估" : "Est"} ${lastBilling.preauthUsd.toFixed(2)} /{" "}
+                    {lang === "zh-HK" ? "實扣" : "Charged"} ${lastBilling.chargedUsd.toFixed(2)}
+                  </div>
+                </div>
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem asChild>
               <Link href="/settings">
                 <Settings className="size-4 mr-2" />
