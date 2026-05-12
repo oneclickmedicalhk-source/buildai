@@ -373,7 +373,16 @@ export default function BuilderPage() {
           ...(data.changedFiles?.length ? { changedFiles: data.changedFiles } : {}),
         })
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Auto-repair failed")
+        const msg = e instanceof Error ? e.message : "Auto-repair failed"
+        toast.error(msg)
+        handleGenerateSuccess({
+          reply: `Preview runtime error (auto-repair failed): ${msg}`,
+          userPrompt: lastUserPrompt || "Runtime error",
+          appTsx: FALLBACK_RUNTIME_ERROR_APP_TSX,
+          extraFiles: undefined,
+          ...(approvedPlan !== undefined ? { approvedPlan } : {}),
+          ...(planClarifications?.length ? { planClarifications } : {}),
+        })
       }
     },
     [

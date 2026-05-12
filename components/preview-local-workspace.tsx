@@ -42,6 +42,12 @@ function buildPreviewSrcDoc(js: string, css: string): string {
 
   let hasError = false;
 
+  const shortStack = (s) => {
+    if (!s) return "";
+    const lines = String(s).split("\\n").slice(0, 4);
+    return lines.join("\\n");
+  };
+
   const sendError = (msg) => {
     if (hasError) return;
     hasError = true;
@@ -55,12 +61,29 @@ function buildPreviewSrcDoc(js: string, css: string): string {
   };
 
   window.addEventListener("error", (e) => {
-    sendError(e && e.message ? e.message : "window.error");
+    const parts = [];
+    parts.push(e && e.message ? String(e.message) : "window.error");
+    if (e && e.filename) {
+      const line = typeof e.lineno === "number" ? e.lineno : "?";
+      const col = typeof e.colno === "number" ? e.colno : "?";
+      parts.push("at " + e.filename + ":" + line + ":" + col);
+    }
+    if (e && e.error && e.error.stack) {
+      parts.push(shortStack(e.error.stack));
+    }
+    sendError(parts.join("\\n"));
   });
 
   window.addEventListener("unhandledrejection", (e) => {
-    const reason = e && e.reason ? (e.reason.message || e.reason) : "unhandledrejection";
-    sendError(reason);
+    const r = e && e.reason ? e.reason : null;
+    const parts = [];
+    if (r && typeof r === "object") {
+      parts.push(r.message || "unhandledrejection");
+      if (r.stack) parts.push(shortStack(r.stack));
+    } else {
+      parts.push(String(r || "unhandledrejection"));
+    }
+    sendError(parts.join("\\n"));
   });
 
   const origError = console.error;

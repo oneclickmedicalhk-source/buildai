@@ -9,6 +9,7 @@ export interface BuilderChatMessage {
   content: string
   ts: number
   plan?: PlanSnapshot
+  planStage?: "questions" | "review"
 }
 
 export interface BuilderVersion {

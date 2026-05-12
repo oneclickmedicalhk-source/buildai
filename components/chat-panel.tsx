@@ -354,6 +354,7 @@ function hydrateThread(rows: BuilderChatMessage[] | undefined): Message[] {
     content: r.content,
     timestamp: new Date(r.ts),
     ...(r.plan ? { plan: r.plan } : {}),
+    ...(r.planStage ? { planStage: r.planStage } : {}),
   }))
 }
 
@@ -366,6 +367,7 @@ function serializeThread(msgs: Message[]): BuilderChatMessage[] {
       content: m.content,
       ts: m.timestamp.getTime(),
       ...(m.plan ? { plan: m.plan } : {}),
+      ...(m.planStage ? { planStage: m.planStage } : {}),
     }))
 }
 
@@ -584,6 +586,11 @@ export function ChatPanel({
         opts?.refineFrom &&
         patchApplyFailed
       ) {
+        toast.message(
+          lang === "zh-HK"
+            ? "Patch 套用失敗，已自動改用完整重寫。"
+            : "Patch apply failed, automatically retrying with full rewrite.",
+        )
         return callGenerate(
           history,
           { ...opts, editOutput: "full" },
@@ -1174,21 +1181,31 @@ export function ChatPanel({
     )
     try {
       const planData = await callPlan(historyForPlan, { clarifications })
-      setMessages((prev) =>
-        prev.map((m) =>
+      const reviewId = `${planMessageId}-review-${Date.now()}`
+      setMessages((prev) => {
+        const base = prev.map((m) =>
           m.id === planMessageId
             ? {
                 ...m,
-                content: planData.reply,
-                plan: planData.plan,
-                planStage: "review",
                 isGenerating: false,
                 generatingLabel: undefined,
                 generatingStage: undefined,
+                planStage: "questions" as const,
               }
             : m,
-        ),
-      )
+        )
+        const at = base.findIndex((m) => m.id === planMessageId)
+        const reviewMsg: Message = {
+          id: reviewId,
+          role: "assistant",
+          content: planData.reply,
+          timestamp: new Date(),
+          plan: planData.plan,
+          planStage: "review",
+        }
+        if (at < 0) return [...base, reviewMsg]
+        return [...base.slice(0, at + 1), reviewMsg, ...base.slice(at + 1)]
+      })
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong"
       toast.error(msg)
