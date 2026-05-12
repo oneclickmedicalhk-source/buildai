@@ -86,6 +86,7 @@ type PreviewBundleApiResponse = {
 
 type ResumePayload = {
   kind: "confirm_build" | "quick_build" | "patch_edit"
+  projectKey: string
   userGoal: string
   history: { role: "user" | "assistant"; content: string; ts: number }[]
   opts?: {
@@ -109,12 +110,13 @@ type ApiBilling = {
 
 const RESUME_STORAGE_KEY = "buildai-resume-payload"
 
-function safeReadResumePayload(): ResumePayload | null {
+function safeReadResumePayload(projectKey: string): ResumePayload | null {
   try {
     const raw = localStorage.getItem(RESUME_STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as ResumePayload
     if (!parsed || typeof parsed !== "object") return null
+    if (parsed.projectKey !== projectKey) return null
     if (!parsed.userGoal || typeof parsed.userGoal !== "string") return null
     if (!parsed.ts || typeof parsed.ts !== "number") return null
     if (!Array.isArray(parsed.history) || parsed.history.length === 0) return null
@@ -381,7 +383,7 @@ function serializeThread(msgs: Message[]): BuilderChatMessage[] {
 }
 
 export function ChatPanel({
-  projectKey: _projectKey,
+  projectKey,
   initialChatThread,
   onChatThreadChange,
   supabaseConfigured,
@@ -429,14 +431,14 @@ export function ChatPanel({
   messagesRef.current = messages
 
   useEffect(() => {
-    const p = safeReadResumePayload()
+    const p = safeReadResumePayload(projectKey)
     if (!p) return
     if (Date.now() - p.ts > 24 * 60 * 60 * 1000) {
       safeClearResumePayload()
       return
     }
     setResumePayload(p)
-  }, [])
+  }, [projectKey])
 
   useEffect(() => {
     if (messages.length > 0) return
@@ -710,6 +712,7 @@ export function ChatPanel({
         const userGoal = [...history].reverse().find((m) => m.role === "user")?.content?.trim() || pendingGoalRef.current || "Continue"
         const payload: ResumePayload = {
           kind,
+          projectKey,
           userGoal,
           history: history
             .filter((m) => m.content)
@@ -905,6 +908,9 @@ export function ChatPanel({
     if (!input.trim() || isLoading) return
 
     const userText = input.trim()
+    // A new request supersedes any stale resume prompt from older failed builds.
+    safeClearResumePayload()
+    setResumePayload(null)
     pendingGoalRef.current = userText
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -1355,7 +1361,7 @@ export function ChatPanel({
 
   const handleResumeLast = useCallback(async () => {
     if (isLoading) return
-    const p = safeReadResumePayload()
+    const p = safeReadResumePayload(projectKey)
     if (!p) {
       setResumePayload(null)
       return
@@ -1437,7 +1443,7 @@ export function ChatPanel({
     } finally {
       setIsLoading(false)
     }
-  }, [buildActivitySeed, callGenerate, generateWithBundleGate, isLoading, onGenerateSuccess, refreshBalance])
+  }, [buildActivitySeed, callGenerate, generateWithBundleGate, isLoading, onGenerateSuccess, projectKey, refreshBalance])
 
   return (
     <div className="flex flex-col h-full min-h-0">
