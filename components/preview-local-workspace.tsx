@@ -15,6 +15,15 @@ type PreviewRuntimeMessage =
   | { type: "buildai_runtime_error"; runtimeKey: string; message: string }
   | { type: "buildai_runtime_blank"; runtimeKey: string; message: string }
 
+function isRecoverableRuntimeWarning(message: string): boolean {
+  const m = message.toLowerCase()
+  return (
+    (m.includes("failed to parse") && m.includes("localstorage")) ||
+    m.includes("invalid localstorage") ||
+    m.includes("localstorage parse")
+  )
+}
+
 function escapeSrcDocScript(js: string): string {
   return js.replace(/<\/script>/gi, "<\\/script>")
 }
@@ -145,7 +154,7 @@ export function PreviewLocalWorkspace({
   const [srcDoc, setSrcDoc] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [runtimeStatus, setRuntimeStatus] = useState<"pending" | "ok" | "error">("pending")
+  const [runtimeStatus, setRuntimeStatus] = useState<"pending" | "ok" | "warn" | "error">("pending")
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
   const [runtimeKey, setRuntimeKey] = useState<string>("")
   const [retrySeq, setRetrySeq] = useState(0)
@@ -232,6 +241,14 @@ export function PreviewLocalWorkspace({
         setRuntimeError(null)
         onRuntimeQa?.({ status: "ok", filesKey })
       } else if (msg.type === "buildai_runtime_error" || msg.type === "buildai_runtime_blank") {
+        const warnOnly = isRecoverableRuntimeWarning(msg.message || "")
+        if (warnOnly) {
+          setRuntimeStatus("warn")
+          setRuntimeError(msg.message || "Runtime warning")
+          // Do not trigger auto-repair loop for recoverable storage parse warnings.
+          onRuntimeQa?.({ status: "ok", filesKey })
+          return
+        }
         setRuntimeStatus("error")
         setRuntimeError(msg.message || "Runtime error")
         onRuntimeQa?.({ status: "error", message: msg.message || "Runtime error", filesKey })
@@ -327,6 +344,17 @@ export function PreviewLocalWorkspace({
               {t("preview_action_retry")}
             </Button>
           </div>
+        ) : runtimeStatus === "warn" ? (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-2 text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
+              <span className="break-words">{runtimeError ?? t("preview_status_runtime_warning")}</span>
+            </div>
+            <Button type="button" variant="outline" size="sm" className="shrink-0 gap-1 h-7" onClick={handleRetry}>
+              <RefreshCw className="size-3" />
+              {t("preview_action_retry")}
+            </Button>
+          </div>
         ) : (
           <div className="text-emerald-600 dark:text-emerald-400">{t("preview_status_ready")}</div>
         )}
@@ -349,7 +377,7 @@ export function PreviewLocalWorkspace({
                     sandbox="allow-scripts"
                     srcDoc={srcDoc}
                   />
-                  {loading || error || runtimeStatus !== "ok" ? (
+                  {loading || error || runtimeStatus === "pending" || runtimeStatus === "error" ? (
                     <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/70 text-zinc-200">
                       <div className="flex items-center gap-2 text-sm">
                         <Loader2 className="size-4 animate-spin shrink-0" />

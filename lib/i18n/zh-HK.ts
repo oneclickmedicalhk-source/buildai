@@ -138,6 +138,7 @@ export const zhHK = {
   preview_status_preparing: "正在準備預覽…",
   preview_status_checking_runtime: "正在檢查是否可正常執行…",
   preview_status_runtime_error: "執行時錯誤（空白畫面或 console 錯誤）。",
+  preview_status_runtime_warning: "可恢復的執行時警告（預覽仍可使用）。",
   preview_status_ready: "預覽已就緒。",
   preview_status_bundling: "正在打包…",
   preview_status_waiting: "等待中…",

@@ -118,6 +118,7 @@ ${baseVibeRule}
   - Type scale: body \`text-sm\`, hints \`text-xs text-muted-foreground\`, headings max \`text-3xl\` unless user requests.
 - **JSX text vs comparisons**: Inside JSX, a raw \`<\` starts a tag and \`>\` can end a nested element. Never put \`<=\`, \`>=\`, or lone \`<\`/\`>\` comparison glue in plain text children — the bundler will error (e.g. "Expected \\">\\" but found \\"=\\"", or "invalid inside a JSX element"). Use braced expressions: \`{hp <= max ? … : …}\`, or spell out ("at most"), or literals \`{"<="}\` / \`{\'<\'}\` when showing symbols.
 - **Generic components in .tsx**: Prefer \`const List = <T,>() => …\` with a trailing comma on the type param, or use \`extends unknown\`, so the parser does not treat \`<T>\` as JSX.
+- **localStorage safety (mandatory)**: Any \`localStorage\` JSON read must be wrapped in try/catch with a safe fallback (empty array/object/default). Never throw when parse fails; recover gracefully and continue rendering.
 - Use only React + TypeScript supported by the preview bundler. No React 19-only APIs; no file system APIs.
 - Never use root-style imports like \`from "/components/…"\`, \`from '@/…'\`, or \`from "/lib/…"\` — use only \`./…\` and \`../…\` for local modules.
 - If you split into multiple files: every local \`import … from "./…"\` or \`from "../…"\` in ANY file MUST have a matching extraFiles entry with the **full path and extension** (e.g. \`/components/Hero.tsx\`).

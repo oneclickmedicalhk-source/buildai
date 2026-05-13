@@ -141,6 +141,7 @@ export const en = {
   preview_status_preparing: "Preparing your preview…",
   preview_status_checking_runtime: "Checking if everything runs…",
   preview_status_runtime_error: "Runtime error (blank screen or console error).",
+  preview_status_runtime_warning: "Recoverable runtime warning (preview still usable).",
   preview_status_ready: "Preview ready.",
   preview_status_bundling: "Bundling…",
   preview_status_waiting: "Waiting…",

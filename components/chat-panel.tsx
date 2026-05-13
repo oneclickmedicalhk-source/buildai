@@ -32,6 +32,7 @@ import {
   Bot,
   Copy,
   Check,
+  ListTree,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -43,7 +44,7 @@ import { PlanQuestionsCard } from "@/components/plan-questions-card"
 import { useAiPreferences } from "@/components/ai-preferences-context"
 import { useI18n } from "@/components/i18n-context"
 import { useAuth } from "@/components/auth-context"
-import type { BuilderChatMessage } from "@/lib/builder-types"
+import type { BuilderActivityItem, BuilderChatMessage, BuilderTraceEvent } from "@/lib/builder-types"
 import type { UiStyleKitId } from "@/lib/ui-style-kit"
 import type { ThemeId } from "@/lib/theme/theme-types"
 import {
@@ -74,7 +75,8 @@ interface Message {
   /** When set, this assistant turn is a plan awaiting user confirmation. */
   plan?: PlanSnapshot
   planStage?: "questions" | "review"
-  activity?: { id: string; label: string; status: "pending" | "active" | "done" | "error"; detail?: string }[]
+  activity?: BuilderActivityItem[]
+  activityTrace?: BuilderTraceEvent[]
 }
 
 type PreviewBundleApiResponse = {
@@ -162,6 +164,70 @@ function buildFallbackErrorAppTsx(args: { title: string; detail: string }): stri
       <p style={{ marginTop: 8, color: "#555", whiteSpace: "pre-wrap" }}>${detail}</p>
     </div>
   )
+}
+
+function toTraceEvent(args: {
+  stepId: string
+  stepLabel: string
+  to: BuilderActivityItem["status"]
+  from?: BuilderActivityItem["status"]
+  detail?: string
+  source: BuilderTraceEvent["source"]
+}): BuilderTraceEvent {
+  const traceId =
+    args.stepId +
+    "-" +
+    Date.now().toString() +
+    "-" +
+    Math.random().toString(16).slice(2, 7)
+  return {
+    id: traceId,
+    ts: Date.now(),
+    stepId: args.stepId,
+    stepLabel: args.stepLabel,
+    ...(args.from ? { from: args.from } : {}),
+    to: args.to,
+    ...(args.detail ? { detail: args.detail } : {}),
+    source: args.source,
+  }
+}
+
+function withActivityUpdate(
+  msg: Message,
+  updater: (rows: BuilderActivityItem[]) => BuilderActivityItem[],
+  source: BuilderTraceEvent["source"],
+): Message {
+  const before = msg.activity ?? []
+  const after = updater(before)
+  const trace = [...(msg.activityTrace ?? [])]
+  for (const row of after) {
+    const prev = before.find((x) => x.id === row.id)
+    if (!prev) {
+      trace.push(
+        toTraceEvent({
+          stepId: row.id,
+          stepLabel: row.label,
+          to: row.status,
+          detail: row.detail,
+          source,
+        }),
+      )
+      continue
+    }
+    if (prev.status !== row.status || prev.detail !== row.detail) {
+      trace.push(
+        toTraceEvent({
+          stepId: row.id,
+          stepLabel: row.label,
+          from: prev.status,
+          to: row.status,
+          detail: row.detail,
+          source,
+        }),
+      )
+    }
+  }
+  return { ...msg, activity: after, activityTrace: trace }
 }
 `
 }
@@ -366,6 +432,8 @@ function hydrateThread(rows: BuilderChatMessage[] | undefined): Message[] {
     timestamp: new Date(r.ts),
     ...(r.plan ? { plan: r.plan } : {}),
     ...(r.planStage ? { planStage: r.planStage } : {}),
+    ...(r.activity?.length ? { activity: r.activity } : {}),
+    ...(r.activityTrace?.length ? { activityTrace: r.activityTrace } : {}),
   }))
 }
 
@@ -379,6 +447,8 @@ function serializeThread(msgs: Message[]): BuilderChatMessage[] {
       ts: m.timestamp.getTime(),
       ...(m.plan ? { plan: m.plan } : {}),
       ...(m.planStage ? { planStage: m.planStage } : {}),
+      ...(m.activity?.length ? { activity: m.activity } : {}),
+      ...(m.activityTrace?.length ? { activityTrace: m.activityTrace } : {}),
     }))
 }
 
@@ -516,6 +586,30 @@ export function ChatPanel({
     [t],
   )
 
+  const buildPlanActivitySeed = useCallback(
+    () =>
+      [
+        { id: "plan-request", label: t("chat_status_planning_request_title"), status: "active" as const },
+        { id: "plan-parse", label: t("chat_status_planning_parse_title"), status: "pending" as const },
+        { id: "plan-confirm", label: t("chat_status_waiting_confirm_title"), status: "pending" as const },
+      ] satisfies BuilderActivityItem[],
+    [t],
+  )
+
+  const buildActivityTraceSeed = useCallback(
+    (rows: BuilderActivityItem[]): BuilderTraceEvent[] =>
+      rows.map((r) =>
+        toTraceEvent({
+          stepId: r.id,
+          stepLabel: r.label,
+          to: r.status,
+          detail: r.detail,
+          source: r.id === "bundle" ? "bundle" : r.id === "runtime" ? "runtime" : "generate",
+        }),
+      ),
+    [],
+  )
+
   const showBillingSummary = useCallback(
     (billing?: ApiBilling) => {
       if (!billing) return
@@ -586,7 +680,20 @@ export function ChatPanel({
       const id = pendingPlanMessageIdRef.current
       if (!id) return prev
       return prev.map((m) =>
-        m.id === id ? { ...m, generatingStage: "planning_parse" } : m,
+        m.id === id
+          ? withActivityUpdate(
+              { ...m, generatingStage: "planning_parse" },
+              (rows) =>
+                rows.map((a) =>
+                  a.id === "plan-request"
+                    ? { ...a, status: "done" }
+                    : a.id === "plan-parse"
+                      ? { ...a, status: "active" }
+                    : a,
+                ),
+              "plan",
+            )
+          : m,
       )
     })
     const data = (await res.json()) as PlanResponse & {
@@ -760,13 +867,11 @@ export function ChatPanel({
           setMessages((prev) =>
             prev.map((m) =>
               m.id === opts.assistantMessageId
-                ? {
-                    ...m,
-                    generatingStage: "codegen_parse",
-                    activity: (m.activity ?? []).map((a) =>
-                      a.id === "bundle" ? { ...a, status: "active" } : a,
-                    ),
-                  }
+                ? withActivityUpdate(
+                    { ...m, generatingStage: "codegen_parse" },
+                    (rows) => rows.map((a) => (a.id === "bundle" ? { ...a, status: "active" } : a)),
+                    "bundle",
+                  )
                 : m,
             ),
           )
@@ -777,12 +882,11 @@ export function ChatPanel({
           setMessages((prev) =>
             prev.map((m) =>
               m.id === opts.assistantMessageId
-                ? {
-                    ...m,
-                    activity: (m.activity ?? []).map((a) =>
-                      a.id === "bundle" ? { ...a, status: "done" } : a,
-                    ),
-                  }
+                ? withActivityUpdate(
+                    m,
+                    (rows) => rows.map((a) => (a.id === "bundle" ? { ...a, status: "done" } : a)),
+                    "bundle",
+                  )
                 : m,
             ),
           )
@@ -814,12 +918,12 @@ export function ChatPanel({
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === opts.assistantMessageId
-                    ? {
-                        ...m,
-                        activity: (m.activity ?? []).map((a) =>
-                          a.id === "bundle" ? { ...a, status: "error", detail: head } : a,
-                        ),
-                      }
+                    ? withActivityUpdate(
+                        m,
+                        (rows) =>
+                          rows.map((a) => (a.id === "bundle" ? { ...a, status: "error", detail: head } : a)),
+                        "bundle",
+                      )
                     : m,
                 ),
               )
@@ -836,10 +940,10 @@ export function ChatPanel({
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === opts.assistantMessageId
-                  ? {
-                      ...m,
-                      activity: [
-                        ...(m.activity ?? []),
+                  ? withActivityUpdate(
+                      m,
+                      (rows) => [
+                        ...rows,
                         {
                           id: `repair-${attempt + 1}`,
                           label: `${t("chat_activity_repair_attempt")} ${attempt + 1}/${maxRepairAttempts + 1}`,
@@ -847,7 +951,8 @@ export function ChatPanel({
                           detail: head,
                         },
                       ],
-                    }
+                      "repair",
+                    )
                   : m,
               ),
             )
@@ -875,12 +980,11 @@ export function ChatPanel({
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === opts.assistantMessageId
-                  ? {
-                      ...m,
-                      activity: (m.activity ?? []).map((a) =>
-                        a.id === `repair-${attempt + 1}` ? { ...a, status: "done" } : a,
-                      ),
-                    }
+                  ? withActivityUpdate(
+                      m,
+                      (rows) => rows.map((a) => (a.id === `repair-${attempt + 1}` ? { ...a, status: "done" } : a)),
+                      "repair",
+                    )
                   : m,
               ),
             )
@@ -928,6 +1032,7 @@ export function ChatPanel({
 
     if (Boolean(canRefineExisting) && !replan && !quickBuild && refineFrom?.appTsx?.trim()) {
       const assistantId = (Date.now() + 1).toString()
+      const seed = buildActivitySeed("edit")
       setMessages((prev) => [
         ...prev,
         {
@@ -938,7 +1043,8 @@ export function ChatPanel({
           isGenerating: true,
           generatingLabel: "building",
           generatingStage: "codegen_request",
-          activity: buildActivitySeed("edit"),
+          activity: seed,
+          activityTrace: buildActivityTraceSeed(seed),
         },
       ])
       try {
@@ -958,18 +1064,20 @@ export function ChatPanel({
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? {
-                  ...m,
-                  activity: (m.activity ?? []).map((a) =>
-                    a.id === "codegen"
-                      ? { ...a, status: "done" }
-                      : a.id === "bundle"
+              ? withActivityUpdate(
+                  m,
+                  (rows) =>
+                    rows.map((a) =>
+                      a.id === "codegen"
                         ? { ...a, status: "done" }
-                        : a.id === "runtime"
+                        : a.id === "bundle"
                           ? { ...a, status: "done" }
-                        : a,
-                  ),
-                }
+                          : a.id === "runtime"
+                            ? { ...a, status: "done" }
+                          : a,
+                    ),
+                  "system",
+                )
               : m,
           ),
         )
@@ -1018,7 +1126,21 @@ export function ChatPanel({
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? { ...m, content: msg, isGenerating: false, generatingStage: undefined, generatingLabel: undefined, generatedComponent: true }
+              ? {
+                  ...withActivityUpdate(
+                    m,
+                    (rows) =>
+                      rows.map((a) =>
+                        a.status === "done" ? a : { ...a, status: "error", ...(a.detail ? {} : { detail: msg }) },
+                      ),
+                    "system",
+                  ),
+                  content: msg,
+                  isGenerating: false,
+                  generatingStage: undefined,
+                  generatingLabel: undefined,
+                  generatedComponent: true,
+                }
               : m,
           ),
         )
@@ -1031,6 +1153,7 @@ export function ChatPanel({
 
     if (quickBuild) {
       const assistantId = (Date.now() + 1).toString()
+      const seed = buildActivitySeed("generate")
       setMessages((prev) => [
         ...prev,
         {
@@ -1041,7 +1164,8 @@ export function ChatPanel({
           isGenerating: true,
           generatingLabel: "building",
           generatingStage: "codegen_request",
-          activity: buildActivitySeed("generate"),
+          activity: seed,
+          activityTrace: buildActivityTraceSeed(seed),
         },
       ])
       const historyForApi = [...messages, userMessage]
@@ -1054,18 +1178,20 @@ export function ChatPanel({
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? {
-                  ...m,
-                  activity: (m.activity ?? []).map((a) =>
-                    a.id === "codegen"
-                      ? { ...a, status: "done" }
-                      : a.id === "bundle"
+              ? withActivityUpdate(
+                  m,
+                  (rows) =>
+                    rows.map((a) =>
+                      a.id === "codegen"
                         ? { ...a, status: "done" }
-                        : a.id === "runtime"
+                        : a.id === "bundle"
                           ? { ...a, status: "done" }
-                        : a,
-                  ),
-                }
+                          : a.id === "runtime"
+                            ? { ...a, status: "done" }
+                          : a,
+                    ),
+                  "system",
+                )
               : m,
           ),
         )
@@ -1113,7 +1239,21 @@ export function ChatPanel({
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? { ...m, content: msg, isGenerating: false, generatingStage: undefined, generatingLabel: undefined, generatedComponent: true }
+              ? {
+                  ...withActivityUpdate(
+                    m,
+                    (rows) =>
+                      rows.map((a) =>
+                        a.status === "done" ? a : { ...a, status: "error", ...(a.detail ? {} : { detail: msg }) },
+                      ),
+                    "system",
+                  ),
+                  content: msg,
+                  isGenerating: false,
+                  generatingStage: undefined,
+                  generatingLabel: undefined,
+                  generatedComponent: true,
+                }
               : m,
           ),
         )
@@ -1125,6 +1265,7 @@ export function ChatPanel({
     }
 
     const planAssistantId = (Date.now() + 1).toString()
+    const planSeed = buildPlanActivitySeed()
     pendingPlanMessageIdRef.current = planAssistantId
     setMessages((prev) => [
       ...prev,
@@ -1136,6 +1277,8 @@ export function ChatPanel({
         isGenerating: true,
         generatingLabel: "planning",
         generatingStage: "planning_request",
+        activity: planSeed,
+        activityTrace: buildActivityTraceSeed(planSeed),
       },
     ])
 
@@ -1146,7 +1289,18 @@ export function ChatPanel({
         prev.map((msg) =>
           msg.id === planAssistantId
             ? {
-                ...msg,
+                ...withActivityUpdate(
+                  msg,
+                  (rows) =>
+                    rows.map((a) =>
+                      a.id === "plan-parse"
+                        ? { ...a, status: "done" }
+                        : a.id === "plan-confirm"
+                          ? { ...a, status: "done" }
+                        : a,
+                    ),
+                  "plan",
+                ),
                 content: planData.reply,
                 plan: planData.plan,
                 planStage: planData.plan.openQuestions?.length ? "questions" : "review",
@@ -1159,7 +1313,24 @@ export function ChatPanel({
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong"
       toast.error(msg)
-      setMessages((prev) => prev.filter((m) => m.id !== planAssistantId))
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === planAssistantId
+            ? {
+                ...withActivityUpdate(
+                  m,
+                  (rows) =>
+                    rows.map((a) => (a.id === "plan-request" || a.id === "plan-parse" ? { ...a, status: "error", detail: msg } : a)),
+                  "plan",
+                ),
+                content: msg,
+                isGenerating: false,
+                generatingLabel: undefined,
+                generatingStage: undefined,
+              }
+            : m,
+        ),
+      )
     } finally {
       setIsLoading(false)
     }
@@ -1181,6 +1352,7 @@ export function ChatPanel({
 
     setIsLoading(true)
     const assistantId = (Date.now() + 2).toString()
+    const seed = buildActivitySeed("generate")
     setMessages((prev) => [
       ...prev,
       {
@@ -1191,7 +1363,8 @@ export function ChatPanel({
         isGenerating: true,
         generatingLabel: "building",
         generatingStage: "codegen_request",
-        activity: buildActivitySeed("generate"),
+        activity: seed,
+        activityTrace: buildActivityTraceSeed(seed),
       },
     ])
 
@@ -1210,15 +1383,19 @@ export function ChatPanel({
         prev.map((msg) =>
           msg.id === assistantId
             ? {
-                ...msg,
-                activity: (msg.activity ?? []).map((a) =>
-                  a.id === "codegen"
-                    ? { ...a, status: "done" }
-                    : a.id === "bundle"
-                      ? { ...a, status: "done" }
-                      : a.id === "runtime"
+                ...withActivityUpdate(
+                  msg,
+                  (rows) =>
+                    rows.map((a) =>
+                      a.id === "codegen"
                         ? { ...a, status: "done" }
-                        : a,
+                        : a.id === "bundle"
+                          ? { ...a, status: "done" }
+                          : a.id === "runtime"
+                            ? { ...a, status: "done" }
+                          : a,
+                    ),
+                  "system",
                 ),
                 content: data.reply,
                 generatingStage: "done",
@@ -1261,7 +1438,21 @@ export function ChatPanel({
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
-            ? { ...m, content: msg, isGenerating: false, generatingStage: undefined, generatingLabel: undefined, generatedComponent: true }
+            ? {
+                ...withActivityUpdate(
+                  m,
+                  (rows) =>
+                    rows.map((a) =>
+                      a.status === "done" ? a : { ...a, status: "error", ...(a.detail ? {} : { detail: msg }) },
+                    ),
+                  "system",
+                ),
+                content: msg,
+                isGenerating: false,
+                generatingStage: undefined,
+                generatingLabel: undefined,
+                generatedComponent: true,
+              }
             : m,
         ),
       )
@@ -1289,7 +1480,20 @@ export function ChatPanel({
     setMessages((prev) =>
       prev.map((m) =>
         m.id === planMessageId
-          ? { ...m, isGenerating: true, generatingLabel: "planning", generatingStage: "planning_request" }
+          ? withActivityUpdate(
+              { ...m, isGenerating: true, generatingLabel: "planning", generatingStage: "planning_request" },
+              (rows) =>
+                rows.map((a) =>
+                  a.id === "plan-request"
+                    ? { ...a, status: "active" }
+                    : a.id === "plan-parse"
+                      ? { ...a, status: "pending" }
+                    : a.id === "plan-confirm"
+                      ? { ...a, status: "pending" }
+                    : a,
+                ),
+              "plan",
+            )
           : m,
       ),
     )
@@ -1300,7 +1504,18 @@ export function ChatPanel({
         const base = prev.map((m) =>
           m.id === planMessageId
             ? {
-                ...m,
+                ...withActivityUpdate(
+                  m,
+                  (rows) =>
+                    rows.map((a) =>
+                      a.id === "plan-request"
+                        ? { ...a, status: "done" }
+                        : a.id === "plan-parse"
+                          ? { ...a, status: "done" }
+                          : a,
+                    ),
+                  "plan",
+                ),
                 isGenerating: false,
                 generatingLabel: undefined,
                 generatingStage: undefined,
@@ -1316,6 +1531,31 @@ export function ChatPanel({
           timestamp: new Date(),
           plan: planData.plan,
           planStage: "review",
+          activity: [
+            { id: "plan-request", label: t("chat_status_planning_request_title"), status: "done" },
+            { id: "plan-parse", label: t("chat_status_planning_parse_title"), status: "done" },
+            { id: "plan-confirm", label: t("chat_status_waiting_confirm_title"), status: "done" },
+          ],
+          activityTrace: [
+            toTraceEvent({
+              stepId: "plan-request",
+              stepLabel: t("chat_status_planning_request_title"),
+              to: "done",
+              source: "plan",
+            }),
+            toTraceEvent({
+              stepId: "plan-parse",
+              stepLabel: t("chat_status_planning_parse_title"),
+              to: "done",
+              source: "plan",
+            }),
+            toTraceEvent({
+              stepId: "plan-confirm",
+              stepLabel: t("chat_status_waiting_confirm_title"),
+              to: "done",
+              source: "plan",
+            }),
+          ],
         }
         if (at < 0) return [...base, reviewMsg]
         return [...base.slice(0, at + 1), reviewMsg, ...base.slice(at + 1)]
@@ -1378,6 +1618,7 @@ export function ChatPanel({
       timestamp: new Date(m.ts),
     }))
     const assistantId = (Date.now() + 1).toString()
+    const seed = buildActivitySeed("generate")
     setIsLoading(true)
     setMessages((prev) => [
       ...prev,
@@ -1389,7 +1630,8 @@ export function ChatPanel({
         isGenerating: true,
         generatingLabel: "building",
         generatingStage: "codegen_request",
-        activity: buildActivitySeed("generate"),
+        activity: seed,
+        activityTrace: buildActivityTraceSeed(seed),
       },
     ])
     try {
@@ -1404,15 +1646,19 @@ export function ChatPanel({
         prev.map((msg) =>
           msg.id === assistantId
             ? {
-                ...msg,
-                activity: (msg.activity ?? []).map((a) =>
-                  a.id === "codegen"
-                    ? { ...a, status: "done" }
-                    : a.id === "bundle"
-                      ? { ...a, status: "done" }
-                      : a.id === "runtime"
+                ...withActivityUpdate(
+                  msg,
+                  (rows) =>
+                    rows.map((a) =>
+                      a.id === "codegen"
                         ? { ...a, status: "done" }
-                        : a,
+                        : a.id === "bundle"
+                          ? { ...a, status: "done" }
+                          : a.id === "runtime"
+                            ? { ...a, status: "done" }
+                          : a,
+                    ),
+                  "system",
                 ),
                 content: data.reply,
                 isGenerating: false,
@@ -1439,11 +1685,31 @@ export function ChatPanel({
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong"
       toast.error(msg)
-      setMessages((prev) => prev.filter((m) => m.id !== assistantId))
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? {
+                ...withActivityUpdate(
+                  m,
+                  (rows) =>
+                    rows.map((a) =>
+                      a.status === "done" ? a : { ...a, status: "error", ...(a.detail ? {} : { detail: msg }) },
+                    ),
+                  "system",
+                ),
+                content: msg,
+                isGenerating: false,
+                generatingStage: undefined,
+                generatingLabel: undefined,
+                generatedComponent: true,
+              }
+            : m,
+        ),
+      )
     } finally {
       setIsLoading(false)
     }
-  }, [buildActivitySeed, callGenerate, generateWithBundleGate, isLoading, onGenerateSuccess, projectKey, refreshBalance])
+  }, [buildActivitySeed, buildActivityTraceSeed, callGenerate, generateWithBundleGate, isLoading, onGenerateSuccess, projectKey, refreshBalance])
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -1577,6 +1843,38 @@ export function ChatPanel({
                                 {message.changedFiles.length > 4 ? "…" : ""}
                               </span>
                             </p>
+                          ) : null}
+                          {message.activity?.length ? (
+                            <details className="mt-2 rounded-md border border-border/70 bg-secondary/20 p-2">
+                              <summary className="cursor-pointer text-xs text-foreground/90 inline-flex items-center gap-1">
+                                <ListTree className="size-3" />
+                                {lang === "zh-HK" ? "步驟紀錄（可回放）" : "Step Trace (Replay)"}
+                              </summary>
+                              <div className="mt-2 space-y-1">
+                                {message.activity.map((a) => (
+                                  <div key={a.id} className="text-xs flex items-start gap-2">
+                                    <span>{a.status === "done" ? "✓" : a.status === "error" ? "!" : "•"}</span>
+                                    <div>
+                                      <div className={cn(a.status === "error" ? "text-destructive" : "text-foreground/90")}>
+                                        {a.label}
+                                      </div>
+                                      {a.detail ? <div className="text-muted-foreground break-words">{a.detail}</div> : null}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                              {message.activityTrace?.length ? (
+                                <div className="mt-2 border-t border-border/60 pt-2 space-y-1">
+                                  {message.activityTrace.slice(-20).map((ev) => (
+                                    <div key={ev.id} className="text-[11px] text-muted-foreground">
+                                      {new Date(ev.ts).toLocaleTimeString()} · {ev.stepLabel} · {ev.from ? `${ev.from}→` : ""}
+                                      {ev.to}
+                                      {ev.detail ? ` · ${ev.detail}` : ""}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </details>
                           ) : null}
                         </div>
                       ) : null}

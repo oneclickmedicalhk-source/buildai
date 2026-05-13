@@ -2,6 +2,26 @@
 
 import type { PlanSnapshot } from "@/lib/plan-schema"
 
+export type BuilderActivityStatus = "pending" | "active" | "done" | "error"
+
+export interface BuilderActivityItem {
+  id: string
+  label: string
+  status: BuilderActivityStatus
+  detail?: string
+}
+
+export interface BuilderTraceEvent {
+  id: string
+  ts: number
+  stepId: string
+  stepLabel: string
+  from?: BuilderActivityStatus
+  to: BuilderActivityStatus
+  detail?: string
+  source: "plan" | "generate" | "bundle" | "repair" | "runtime" | "system"
+}
+
 /** One persisted chat bubble (no transient generating flags). */
 export interface BuilderChatMessage {
   id: string
@@ -10,6 +30,8 @@ export interface BuilderChatMessage {
   ts: number
   plan?: PlanSnapshot
   planStage?: "questions" | "review"
+  activity?: BuilderActivityItem[]
+  activityTrace?: BuilderTraceEvent[]
 }
 
 export interface BuilderVersion {
