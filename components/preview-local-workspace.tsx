@@ -245,8 +245,8 @@ export function PreviewLocalWorkspace({
         if (warnOnly) {
           setRuntimeStatus("warn")
           setRuntimeError(msg.message || "Runtime warning")
-          // Do not trigger auto-repair loop for recoverable storage parse warnings.
-          onRuntimeQa?.({ status: "ok", filesKey })
+          // Do not mark runtime OK yet; wait for explicit runtime_ok signal.
+          // This keeps watchdog active so we still fail fast if preview never becomes healthy.
           return
         }
         setRuntimeStatus("error")
@@ -261,7 +261,7 @@ export function PreviewLocalWorkspace({
 
   useEffect(() => {
     if (!srcDoc) return
-    if (runtimeStatus !== "pending") return
+    if (runtimeStatus !== "pending" && runtimeStatus !== "warn") return
     // Watchdog avoids "Checking runtime..." stalls if no iframe message arrives.
     const timer = window.setTimeout(() => {
       const msg = "Runtime check timed out: no signal from preview iframe."
