@@ -5,15 +5,15 @@ import type { SyncPullResponse, SyncEvent } from "@/lib/sync/sync-types"
 
 export const runtime = "nodejs"
 
-function getWorkspaceId(): string | null {
-  const jar = cookies()
+async function getWorkspaceId(): Promise<string | null> {
+  const jar = await cookies()
   const existing = jar.get("buildai_ws")?.value
   return existing?.trim() ? existing : null
 }
 
 export async function GET(req: Request) {
   try {
-    const ws = getWorkspaceId()
+    const ws = await getWorkspaceId()
     if (!ws) {
       const body: SyncPullResponse = {
         workspaceId: "",

@@ -17,8 +17,8 @@ const pushSchema = z.object({
   events: z.array(syncEventSchema).min(1),
 })
 
-function getOrCreateWorkspaceId(): string {
-  const jar = cookies()
+async function getOrCreateWorkspaceId(): Promise<string> {
+  const jar = await cookies()
   const existing = jar.get("buildai_ws")?.value
   if (existing?.trim()) return existing
   const id =
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
   try {
     const raw: unknown = await req.json()
     const body = pushSchema.parse(raw)
-    const workspaceId = getOrCreateWorkspaceId()
+    const workspaceId = await getOrCreateWorkspaceId()
     const { client } = getSyncSupabaseAdmin()
 
     const last = body.events[body.events.length - 1] as SyncEvent

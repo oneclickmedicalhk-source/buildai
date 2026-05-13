@@ -165,6 +165,8 @@ function buildFallbackErrorAppTsx(args: { title: string; detail: string }): stri
     </div>
   )
 }
+`
+}
 
 function toTraceEvent(args: {
   stepId: string
@@ -228,8 +230,6 @@ function withActivityUpdate(
     }
   }
   return { ...msg, activity: after, activityTrace: trace }
-}
-`
 }
 
 function GeneratingStatus({
