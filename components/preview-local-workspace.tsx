@@ -377,7 +377,7 @@ export function PreviewLocalWorkspace({
                     sandbox="allow-scripts"
                     srcDoc={srcDoc}
                   />
-                  {loading || error || runtimeStatus === "pending" || runtimeStatus === "error" ? (
+                  {loading || error || runtimeStatus === "pending" ? (
                     <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/70 text-zinc-200">
                       <div className="flex items-center gap-2 text-sm">
                         <Loader2 className="size-4 animate-spin shrink-0" />
